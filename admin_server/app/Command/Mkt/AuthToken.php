@@ -1,0 +1,63 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Command\Mkt;
+
+use App\Constants\MktConst;
+use App\Job\Mkt\MktJob;
+use App\Model\Mkt\MktUser;
+use Hyperf\Command\Command as HyperfCommand;
+use Hyperf\Command\Annotation\Command;
+use Symfony\Component\Console\Input\InputArgument;
+
+/**
+ * @Command
+ */
+class AuthToken extends HyperfCommand
+{
+    protected $name = 'mkt:authToken';
+
+    /**
+     * 字段
+     * @var string
+     */
+    private $key = 'user_id';
+
+    /**
+     * 方法名
+     * @var string
+     */
+    private $func = 'authToken';
+
+    protected function getArguments()
+    {
+        return [
+            [$this->key, InputArgument::OPTIONAL],
+        ];
+    }
+
+    public function handle()
+    {
+        $value = $this->input->getArgument($this->key);
+
+        $model = $this->getMode();
+
+        !empty($value) && $model->where($this->key, $value);
+
+        $list = $model
+            // 提前20分钟刷新
+            ->where('access_time', '<', time() + 20 * 60)
+            ->pluck($this->key)
+            ->toArray();
+
+        foreach ($list as $v) {
+            queue_push(new MktJob($this->func, [(string)$v]), MktConst::QUEUE_KEY);
+        }
+    }
+
+    public function getMode()
+    {
+        return MktUser::query();
+    }
+}

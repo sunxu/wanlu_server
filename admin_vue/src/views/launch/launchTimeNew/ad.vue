@@ -1,0 +1,473 @@
+<template>
+  <div class="app-container">
+    <div class="filter-container">
+      <el-row>
+        <el-col :span="8">
+          <span class="el-col-span">日期：</span>
+            <el-date-picker
+              :clearable = "false"
+              v-model="searchDate"
+              @change="handleTimeChange"
+              type="datetimerange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期">
+            </el-date-picker>
+          <!-- <el-date-picker v-model="searchDate" type="daterange" style="width: 240px;" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false"></el-date-picker> -->
+        </el-col>
+        <el-col :span="6">
+          <span class="el-col-span">应用：</span>
+          <el-select
+            v-model="listQuery.app_codes"
+            placeholder="应用"
+            class="filter-item"
+             clearable
+            filterable
+            multiple
+            collapse-tags
+            style="width: 240px;"
+            @change="initFilter"
+          >
+            <el-option
+              v-for="item in appList"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value">
+            </el-option>
+          </el-select>
+        </el-col>
+        <el-col :span="5">
+          <span class="el-col-span">投放渠道：</span>
+          <el-select v-model="listQuery.platform" placeholder="投放渠道" clearable style="width: 180px" class="filter-item">
+            <el-option v-for="(value,key) in source_map" :label="value" :value="key"></el-option>
+          </el-select>
+        </el-col>
+        <el-col :span="5">
+          <span class="el-col-span">投放方式：</span>
+          <el-select v-model="listQuery.launch_type" placeholder="投放渠道" clearable style="width: 180px" class="filter-item">
+            <el-option v-for="(value,key) in launch_type_map" :label="value" :value="key"></el-option>
+          </el-select>
+        </el-col>
+      </el-row>
+      <el-row>
+        <el-col :span="8">
+          <span class="el-col-span">广告主：</span>
+          <el-cascader
+            ref="cascader"
+            style="width: 240px"
+            class="filter-item"
+            :options="advertiserProjectAdList"
+            :props="{ multiple: true, checkStrictly: true }"
+            clearable
+            filterable
+            collapse-tags></el-cascader>
+        </el-col>
+         <el-col :span="6">
+          <span class="el-col-span">广告：</span>
+          <el-select v-model="listQuery.ad_ids" multiple placeholder="广告" clearable style="width: 240px" class="filter-item">
+            <el-option v-for="item in adFilterList" :key="item.ad_id" :label="item.ad_name" :value="item.ad_id"></el-option>
+          </el-select>
+        </el-col>
+        <el-col :span="4">
+           <span class="el-col-span">当前时间：</span>
+          <el-switch
+            style="margin-right: 30px;"
+            @change="handleChange"
+            v-model="nowTime">
+          </el-switch>
+        </el-col>
+        <el-col :span="6">
+         
+          <el-button class="filter-item" type="primary" icon="el-icon-search" @click="handleFilter">
+          搜索
+          </el-button>
+          <el-button class="filter-item" type="primary" icon="el-icon-download" :loading="downloadLoading" @click="handleDownload">
+            导出
+          </el-button>
+        </el-col>
+      </el-row>
+    </div>
+    <el-table
+      v-loading="listLoading"
+      :data="list"
+      element-loading-text="Loading"
+      border
+      fit
+      highlight-current-row
+      @sort-change="handleSort"
+    >
+      <!-- <el-table-column label="账户" align="center" prop="id" width="100" fixed></el-table-column> -->
+      <el-table-column label="账户ID" align="center" prop="advertiser_id" width="100" fixed sortable></el-table-column>
+      <el-table-column label="账户名" align="center" prop="advertiser_name" width="100" fixed></el-table-column>
+      <el-table-column label="广告ID" align="center" prop="ad_id" width="100" fixed ></el-table-column>
+      <el-table-column label="广告名称" align="center" prop="ad_name" width="100" fixed ></el-table-column>
+      <el-table-column align="center" label="投放方式" prop="launch_type" width="100" >
+        <template slot-scope="scope">
+          {{ launch_type_map[scope.row.launch_type] }}
+        </template>
+      </el-table-column>
+      <el-table-column align="center" label="预算" prop="budget_amount" sortable :sort-method="(a, b) => parseFloat(a.budget_amount || 0) - parseFloat(b.budget_amount || 0)"></el-table-column>
+      <el-table-column align="center" label="消耗" prop="cost" sortable :sort-method="(a, b) => parseFloat(a.cost || 0) - parseFloat(b.cost || 0)"></el-table-column>
+      <el-table-column align="center" label="激活后24小时变现ROI（巨量）" prop="attribution_app_24h_roi"></el-table-column>
+      <el-table-column align="center" label="roi（自有后端数据）" prop="roi"></el-table-column>
+      <el-table-column align="center" label="展示数" prop="show"></el-table-column>
+      <el-table-column align="center" label="点击数" prop="click"></el-table-column>
+      <el-table-column align="center" label="点击率(%)" prop="click_rate"></el-table-column>
+      <el-table-column align="center" label="转化数" prop="convert"></el-table-column>
+      <el-table-column align="center" label="平均点击单价(元)" prop="avg_click_cost"></el-table-column>
+      <el-table-column align="center" label="平均千次展现费用(元)" prop="avg_show_cost"></el-table-column>
+      <el-table-column align="center" label="转化成本" prop="convert_cost"></el-table-column>
+      <el-table-column align="center" label="转化率(%)" prop="convert_rate"></el-table-column>
+      <el-table-column align="center" label="激活后24小时变现ROI上一个小时（巨量）" prop="attribution_app_24h_roi_1hour"></el-table-column>
+      <el-table-column align="center" label="同时段激活后24小时变现ROI（巨量）-1 Day" prop="attribution_app_24h_roi_1day"></el-table-column>
+      <el-table-column align="center" label="同时段激活后24小时变现ROI（巨量）-2 Day" prop="attribution_app_24h_roi_2day"></el-table-column>
+      <el-table-column align="center" label="同时段激活后24小时变现ROI（巨量）-3 Day" prop="attribution_app_24h_roi_3day"></el-table-column>
+      <el-table-column align="center" label="健康度" prop="health_score" sortable>
+        <!--"健康度指标判别:1. roi数值<最低值, 危险(红色);2. 最低值<roi数值<优秀值, 待观察(黄色);3. roi数值>优秀值, 优秀(绿色)"-->
+          <template slot-scope="scope">
+            <el-tag :type="health_score_type_map[scope.row.health_score]">
+              {{ health_score_map[scope.row.health_score] }}
+            </el-tag>
+        </template>
+      </el-table-column>
+        <el-table-column align="center" label="快照状态" prop="put_status" width="100">
+        <template slot-scope="scope">
+          <el-tag v-if="scope.row.put_status" :type="put_status_type_map[scope.row.put_status]">
+            {{ put_status_map[scope.row.put_status] }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column align="center" label="实时状态" prop="current_put_status" width="100">
+        <template slot-scope="scope">
+          <el-tag
+              v-if="scope.row.current_put_status !== undefined && scope.row.current_put_status !== null"
+              :type="put_status_type_map[scope.row.current_put_status]">
+            {{ put_status_map[scope.row.current_put_status] }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="记录的时间" align="center" prop="record_time" width="150">
+        <template slot-scope="scope">
+          {{ parseTime(scope.row.record_time, '{y}-{m}-{d} {h}:{i}:{s}') }}
+        </template>
+      </el-table-column>
+      <el-table-column align="center" label="启动时间" prop="launch_time" width="150">
+        <template slot-scope="scope">
+          {{ parseTime(scope.row.launch_time, '{y}-{m}-{d} {h}:{i}:{s}') }}
+        </template>
+      </el-table-column>
+    </el-table>
+    <pagination  :page-sizes="[500, 300, 100, 10]"  v-show="total>0" :total="total" :page.sync="listQuery.page" :limit.sync="listQuery.per_page" @pagination="fetchData" />
+  </div>
+</template>
+
+<script>
+import { getAppCode } from '@/utils/auth'
+import { parseTime } from '@/utils'
+import { getLaunchAdTimeNew ,getAdFilterTimeNew,getSearchFilterNew} from '@/api/launch/lad'
+import { advertiserProjectAd } from '@/api/common'
+import Pagination from '@/components/Pagination'
+import { Message } from 'element-ui'
+
+export default {
+  label: '广告投放数据',
+  name: 'AdList',
+  components: { Pagination },
+  data() {
+    return {
+      source_map: _.clone(this.$global.SOURCE_MAP),
+      launch_type_map: _.clone(this.$global.LAUNCH_TYPE_MAP_ROI),
+      put_status_map: {
+        0: '默认',
+        1: '投放中',
+        2: '暂停'
+      },
+      put_status_type_map: {
+        0: 'info',
+        1: 'success',
+        2: 'danger'
+      },
+      health_score_map: {
+        1: '危险',
+        2: '待观察',
+        3: '优秀'
+      },
+      health_score_type_map: {
+        1: 'danger',
+        2: 'warning',
+        3: 'success'
+      },
+      nowTime:true,
+      appList: [],
+      advertiserProjectAdList: [],
+      adFilterList: [],
+      searchDate: undefined,
+      listLoading: false,
+      downloadLoading: false,
+      total: 0,
+      list: undefined,
+      total_data: {
+        cost: 0,
+        withdraw: 0,
+        install_payment: 0,
+        install_num: 0,
+        install_pre_cost: 0,
+        install_withdraw: 0,
+        install_avg_revenue: 0,
+        install_roi: 0,
+        install_roi_withdraw: 0,
+        install_roi_24h: 0,
+        install_roi_24h_withdraw: 0,
+        active_cost: 0,
+        key_action_cost: 0,
+        key_action_rate: '0%',
+        active: 0,
+        key_action: 0,
+        recovery3_rate: '0%',
+        recovery7_rate: '0%',
+        recovery10_rate: '0%',
+        keep1_rate: '0%',
+        keep3_rate: '0%',
+        keep7_rate: '0%',
+        keep10_rate: '0%'
+      },
+      listQuery: {
+        page: 1,
+        per_page: 500,
+        app_codes: undefined,
+        date_begin: undefined,
+        date_end: undefined,
+        platform: undefined,
+        launch_type: undefined,
+        advertiser_ids: [],
+        project_ids: [],
+        ad_ids: [],
+        sort_column: undefined,
+        sort_type: undefined
+      }
+    }
+  },
+  created() {
+    //获取当前时间年月日时 然后 时 减去一个小时
+    this.searchDate = []
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = now.getMonth() + 1
+    const day = now.getDate()
+    const hour = now.getHours() - 1
+    this.searchDate[0] = new Date(year, month - 1, day, hour, 0, 0)
+    this.searchDate[1] = new Date(year, month - 1, day, hour, 59, 59)
+    // this.searchDate = [new Date(), new Date()]
+    // this.listQuery.app_code = getAppCode()
+    this.searchOptions()
+  },
+  mounted() {
+    this.fetchData()
+  },
+  methods: {
+    parseTime,
+    handleTimeChange() {
+     this.nowTime = false
+    },
+    handleChange() {
+        const now = new Date()
+        const year = now.getFullYear()
+        const month = now.getMonth() + 1
+        const day = now.getDate()
+        const hour = now.getHours() - 1
+      if (this.nowTime) {
+        //获取当前时间年月日时 然后 时 减去一个小时
+        let nd = []
+        nd[0] = new Date(year, month - 1, day, hour, 0, 0)
+        nd[1] = new Date(year, month - 1, day, hour, 59, 59)
+        this.listQuery.date_begin = parseTime(nd[0], '{y}-{m}-{d} {h}:{i}:{s}')
+        this.listQuery.date_end = parseTime(nd[1], '{y}-{m}-{d} {h}:{i}:{s}')  
+        this.searchDate = nd
+        console.log(this.listQuery.date_begin,"-",this.listQuery.date_end)
+        this.handleFilter()
+      }else{
+         //今天0点到当前时间
+          let nd = []
+          nd[0] = new Date(year, month - 1, day, 0, 0, 0)
+          nd[1] = new Date()
+          this.listQuery.date_begin = parseTime(nd[0], '{y}-{m}-{d} {h}:{i}:{s}')
+          this.listQuery.date_end = parseTime(nd[1], '{y}-{m}-{d} {h}:{i}:{s}')  
+          this.searchDate = nd
+          this.handleFilter()
+      }
+    },
+    fetchData() {
+      this.listLoading = true
+         if (!this.searchDate) {
+          this.listQuery.date_begin = ""
+          this.listQuery.date_end = ""
+      }else{
+          this.listQuery.date_begin = parseTime(this.searchDate[0], '{y}-{m}-{d} {h}:{i}:{s}')
+          this.listQuery.date_end = parseTime(this.searchDate[1], '{y}-{m}-{d} {h}:{i}:{s}')
+      }
+  
+      const that = this
+      that.listQuery.advertiser_ids = []
+      that.listQuery.project_ids = []
+      // that.listQuery.ad_ids = []
+      this.$refs['cascader'].getCheckedNodes().forEach(function(item) {
+        switch (item.level) {
+          case 1:
+            that.listQuery.advertiser_ids.push(item.value)
+            break
+          case 2:
+            that.listQuery.project_ids.push(item.value)
+            break
+          case 3:
+            that.listQuery.ad_ids.push(item.value)
+            break
+        }
+      })
+      
+      getLaunchAdTimeNew(this.listQuery).then(response => {
+        this.total = response.data.total
+        this.list = response.data.list
+        // this.total_data = response.data.total_data
+        this.listLoading = false
+      })
+    },
+    handleFilter() {
+      this.listQuery.page = 1
+      this.fetchData()
+    },
+    searchOptions() {
+      const apps = this.$store.getters.userInfo.apps
+      this.appList = []
+      apps.forEach(app => {
+        this.appList.push({ value: app.app_code, label: app.app_name })
+      })
+      this.initFilter()
+      // advertiserProjectAd(getAppCode()).then(response => {
+      //   const advertiserArr = []
+      //   response.data.records.forEach(function(item) {
+      //     const projectArr = []
+      //     item.project.forEach(function(item) {
+      //       const adArr = []
+      //       item.ad.forEach(function(item) {
+      //         adArr.push({ value: item.ad_id, label: item.ad_id + '-' + item.ad_name })
+      //       })
+      //       projectArr.push({ value: item.project_id, label: item.project_id + '-' + item.project_name, children: adArr })
+      //     })
+      //     advertiserArr.push({ value: item.advertiser_id, label: item.advertiser_id + '-' + item.advertiser_name, children: projectArr })
+      //   })
+      //   this.advertiserProjectAdList = advertiserArr
+      // })
+
+     
+    },
+    initFilter() {
+     
+       let data = {
+          page:'hourly_ad',
+          type:'advertiser_id',
+          app_codes:this.listQuery.app_codes,
+      }
+      getSearchFilterNew(data).then(response => {
+         const advertiserArr = []
+        response.data.filter.forEach(function (item) {
+          advertiserArr.push({ value: item.advertiser_id, label: item.advertiser_id + '-' + item.advertiser_name })
+        })
+        this.advertiserProjectAdList = advertiserArr
+      })
+       let data2 = {
+          page:'hourly_ad',
+          type:'ad_id',
+          app_codes:this.listQuery.app_codes,
+      }
+      getSearchFilterNew(data2).then(response => {
+        //{"code":0,"msg":"OK","data":{"ad_filter":[{"ad_id":"7581695406796390419","ad_name":""},{"ad_id":"7580173866346856458","ad_name":""},{"ad_id":"7580173812260651054","ad_name":""},{"ad_id":"7580925013202157622","ad_name":""},{"ad_id":"7580173874609733670","ad_name":""},{"ad_id":"7578016183505551414","ad_name":"琙琛盒子-傲屹-ROI-1129-20"}]}}
+        //返回数据放到data中
+        this.adFilterList = response.data.filter
+      })
+    },
+    handleSort(sort) {
+      if (sort.order === null) {
+        this.listQuery.page = 1
+        this.listQuery.sort_column = undefined
+        this.listQuery.sort_type = undefined
+        this.fetchData()
+        return
+      }
+      this.listQuery.sort_type = sort.order
+      this.listQuery.sort_column = sort.prop
+      this.listQuery.page = 1
+      this.fetchData()
+    },
+    handleDownload() {
+      this.downloadLoading = true
+      const query = Object.assign({}, this.listQuery)
+      query.per_page = this.total
+      query.page = 1
+      const that = this
+      getLaunchAdTimeNew(query).then(response => {
+        import('@/vendor/Export2Excel').then(excel => {
+          const tHeader = ['账户', '账户ID', '账户名', '广告ID', '广告名称', '投放方式','记录时间', '启动时间', '预算', '消耗', '展示数', '点击数', '点击率(%)', '昨日点击率(%)', '转化数', '平均点击单价(元)', '平均千次展现费用(元)', '转化成本', '转化率(%)', '激活后24小时变现ROI（巨量）', '激活后24小时变现ROI上一个小时（巨量）', '同时段激活后24小时变现ROI（巨量）-1 Day', '同时段激活后24小时变现ROI（巨量）-2 Day', '同时段激活后24小时变现ROI（巨量）-3 Day', 'roi（自有后端数据）', '健康度', '快照状态', '实时状态']
+          const filterVal = ['id', 'advertiser_id', 'advertiser_name', 'ad_id', 'ad_name', 'launch_type', 'record_time', 'launch_time', 'budget_amount', 'cost', 'show', 'click', 'click_rate', 'yesterday_ctr', 'convert', 'avg_click_cost', 'avg_show_cost', 'convert_cost', 'convert_rate', 'attribution_app_24h_roi', 'attribution_app_24h_roi_1hour', 'attribution_app_24h_roi_1day', 'attribution_app_24h_roi_2day', 'attribution_app_24h_roi_3day', 'roi', 'health_score','put_status', 'current_put_status']
+          const data = response.data.list.map(v => filterVal.map(j => {
+            if (j === 'put_status') {
+              return that.put_status_map[v[j]]
+            }
+            if (j === 'record_time') {
+              return parseTime(v[j], '{y}-{m}-{d} {h}:{i}:{s}')
+            }
+            if (j === 'launch_type') {
+              return that.launch_type_map[v[j]]
+            }
+            if (j === 'launch_time') {
+              return parseTime(v[j], '{y}-{m}-{d} {h}:{i}:{s}')
+            }
+            if (j === 'health_score') {
+              return that.health_score_map[v[j]]
+            }
+            if (j === 'current_put_status') {
+              return that.put_status_map[v[j]]
+            }
+            return v[j]
+          }))
+          if (data.length <= 0) {
+            that.downloadLoading = false
+            Message({
+              showClose: true,
+              message: '没有导出的数据',
+              type: 'warning',
+              duration: 5 * 1000
+            })
+            return
+          }
+
+          let date = new Date()
+          let time = date.getFullYear() + '' + (date.getMonth() + 1) + '' + date.getDate() + '' + date.getHours() + '' + date.getMinutes() + '' + date.getSeconds();
+          excel.export_json_to_excel({
+            header: tHeader,
+            data,
+            filename: '投放-' + time
+          })
+          that.downloadLoading = false
+        })
+      })
+    }
+  }
+}
+</script>
+
+<style scoped>
+.el-row {
+  margin-bottom: 10px;
+}
+
+.el-radio {
+  margin: 0
+}
+
+.el-col-span .el-col {
+  display: inline-block;
+  width: 80px;
+  margin: 6px 0;
+  font-size: 14px;
+}
+</style>
