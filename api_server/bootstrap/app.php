@@ -48,7 +48,6 @@ $app->configure('aliyun');
 $app->configure('amap');
 $app->configure('wechatpay');
 $app->configure('appconf');
-$app->configure('volcengine');
 // 测试用例配置
 $app->configure('tests/app');
 
