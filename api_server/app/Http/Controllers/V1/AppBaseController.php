@@ -684,7 +684,7 @@ class AppBaseController extends Controller
             return false;
         }
         // 通用
-        $citys = ['北京', '上海', '广州', '深圳'];
+        $citys = ['北京', '上海', '广州', '深圳', '南京'];
         // 华为
         $citysHw = ['南京', '东莞', '重庆', '贵阳'];
         // OPPO
