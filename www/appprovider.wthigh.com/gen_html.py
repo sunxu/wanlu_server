@@ -6,11 +6,11 @@ import sys
 from pypinyin import lazy_pinyin, Style
 
 
-TEMPLATE_USER = "zhuguangbox_agreement.html"
-TEMPLATE_POLICY = "zhuguangbox_privacy.html"
+TEMPLATE_USER = "qygjj_agreement.html"
+TEMPLATE_POLICY = "qygjj_privacy.html"
 
-OLD_COMPANY = "北京惠赢网络科技有限公司"
-OLD_APP_NAME = "逐光工具坊"
+OLD_COMPANY = "万路征途（北京）科技有限公司"
+OLD_APP_NAME = "清砚工具集"
 
 
 def run_cmd(cmd):
