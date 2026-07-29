@@ -51,7 +51,7 @@ class TotalService
             ->all();
 
         $currentPage = data_get($params, 'page', 1);
-        $perPage = data_get($params, 'per_page', 10);
+        $perPage = data_get($params, 'per_page', 100);
         $list = collect($total)->forPage((int)$currentPage, (int)$perPage)->toArray();
 
         return [

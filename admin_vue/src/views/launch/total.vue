@@ -91,7 +91,7 @@
         <el-table-column align="center" label="在投帐户数" prop="advertiser_num" ></el-table-column>
       </el-table-column>
     </el-table>
-    <pagination v-show="total>0" :total="total" :page.sync="listQuery.page" :limit.sync="listQuery.per_page" @pagination="fetchData" />
+    <pagination v-show="total>0" :total="total" :page.sync="listQuery.page" :limit.sync="listQuery.per_page" :page-sizes="[10, 20, 50, 100, 200]" @pagination="fetchData" />
   </div>
 </template>
 
@@ -128,7 +128,7 @@ export default {
       },
       listQuery: {
         page: 1,
-        per_page: 10,
+        per_page: 100,
         app_code: undefined,
         date_begin: undefined,
         date_end: undefined,
