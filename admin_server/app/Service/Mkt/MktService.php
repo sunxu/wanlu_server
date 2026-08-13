@@ -1060,7 +1060,7 @@ class MktService
     }
 
     /**
-     * 保存快手 OAuth 返回的真实账号 ID，并停用历史错误账号。
+     * 保存快手 OAuth 返回的真实账号 ID。
      * @param string $userId
      * @param array $token
      * @return string
@@ -1076,11 +1076,6 @@ class MktService
         if ($accountId === '' || $accountId === $userId) {
             throw new Exception('快手授权响应缺少有效账号ID');
         }
-
-        MktAccount::query()
-            ->where('user_id', $userId)
-            ->where('account_id', '<>', $accountId)
-            ->update(['is_valid' => 0]);
 
         $this->saveAccount([
             'user_id' => $userId,
