@@ -80,14 +80,23 @@ class MktService
         // 快手、华为
         if (in_array($app->platform, [MktConst::PLATFORM_KS, MktConst::PLATFORM_HW, MktConst::PLATFORM_BD])) {
 
-            $userToken['user_id'] = empty($userId) ? $userToken['app_id'] : $userId;
+            $internalUserId = empty($userId) ? $userToken['app_id'] : $userId;
+
+            if ($app->platform === MktConst::PLATFORM_KS) {
+                $this->syncKsAccount($internalUserId, $userToken);
+                $userToken['user_id'] = $internalUserId;
+            } else {
+                $userToken['user_id'] = $internalUserId;
+            }
 
             $this->saveUser($userToken);
-            $this->saveAccount([
-                'user_id' => $userToken['user_id'],
-                'account_id' => $userToken['user_id'],
-                'is_valid' => 1
-            ]);
+            if ($app->platform !== MktConst::PLATFORM_KS) {
+                $this->saveAccount([
+                    'user_id' => $userToken['user_id'],
+                    'account_id' => $userToken['user_id'],
+                    'is_valid' => 1
+                ]);
+            }
         }
 
         // vivo
@@ -151,9 +160,14 @@ class MktService
         $this->bd($model->app->platform, $refreshToken, $userId);
 
         $userToken = $mkt->authRefreshToken($refreshToken);
+        if ($model->app->platform === MktConst::PLATFORM_KS) {
+            $this->syncKsAccount($userId, $userToken);
+        }
         $userToken['user_id'] = $userId;
 
-        return $this->saveUser($userToken);
+        $result = $this->saveUser($userToken);
+
+        return $result;
     }
 
     /**
@@ -195,17 +209,25 @@ class MktService
             throw new Exception('invalid userId:' . $userId);
         }
 
+        $mkt = $this->getMkt($model->app->platform);
+
         // 快手
         if ($model->app->platform == MktConst::PLATFORM_KS) {
-            $this->saveAccount([
-                'user_id' => $userId,
-                'account_id' => $userId,
-                'is_valid' => 1
-            ]);
+            $account = MktAccount::query()
+                ->where('user_id', $userId)
+                ->where('is_valid', 1)
+                ->where('account_id', '<>', $userId)
+                ->first();
+
+            if (!$account) {
+                $mkt->setApp((string)$model->app->app_id, (string)$model->app->app_secret);
+                $userToken = $mkt->authRefreshToken($model->refresh_token);
+                $this->syncKsAccount($userId, $userToken);
+                $userToken['user_id'] = $userId;
+                $this->saveUser($userToken);
+            }
             return;
         }
-
-        $mkt = $this->getMkt($model->app->platform);
 
         $mkt->setApp((string)$model->app->app_id, (string)$model->app->app_secret);
         $mkt->setToken($model->access_token);
@@ -239,7 +261,22 @@ class MktService
         // 百度
         $this->bd($model->user->app->platform, $accountId, $model->account_name);
 
-        $list = $mkt->advertiserGet($accountId);
+        try {
+            $list = $mkt->advertiserGet($accountId);
+        } catch (Exception $e) {
+            if ($model->user->app->platform !== MktConst::PLATFORM_KS ||
+                strpos($e->getMessage(), '授权的快手id和传参的快手id不一致') === false) {
+                throw $e;
+            }
+
+            $mkt->setApp((string)$model->user->app->app_id, (string)$model->user->app->app_secret);
+            $userToken = $mkt->authRefreshToken($model->user->refresh_token);
+            $accountId = $this->syncKsAccount($model->user->user_id, $userToken);
+            $userToken['user_id'] = $model->user->user_id;
+            $this->saveUser($userToken);
+            $mkt->setToken($userToken['access_token']);
+            $list = $mkt->advertiserGet($accountId);
+        }
 
         foreach ($list ?? [] as $value) {
             $value['account_id'] = $value['account_id'] ?? $accountId;
@@ -1020,6 +1057,38 @@ class MktService
         }
 
         return $model->fill($data)->save();
+    }
+
+    /**
+     * 保存快手 OAuth 返回的真实账号 ID，并停用历史错误账号。
+     * @param string $userId
+     * @param array $token
+     * @return string
+     * @throws Exception
+     */
+    protected function syncKsAccount(string $userId, array $token): string
+    {
+        $accountId = trim((string)($token['user_id'] ?? ''));
+        if ($accountId === '' || $accountId === $userId) {
+            $accountId = trim((string)($token['advertiser_id'] ?? ''));
+        }
+
+        if ($accountId === '' || $accountId === $userId) {
+            throw new Exception('快手授权响应缺少有效账号ID');
+        }
+
+        MktAccount::query()
+            ->where('user_id', $userId)
+            ->where('account_id', '<>', $accountId)
+            ->update(['is_valid' => 0]);
+
+        $this->saveAccount([
+            'user_id' => $userId,
+            'account_id' => $accountId,
+            'is_valid' => 1
+        ]);
+
+        return $accountId;
     }
 
     /**

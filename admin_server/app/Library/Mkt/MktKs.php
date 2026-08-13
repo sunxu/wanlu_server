@@ -27,17 +27,27 @@ class MktKs extends MktAbstract
             'json' => $params
         ];
 
+        $logOptions = $options;
+        if (isset($logOptions['headers']['Access-Token'])) {
+            $logOptions['headers']['Access-Token'] = 'REDACTED';
+        }
+        foreach (['auth_code', 'refresh_token', 'secret'] as $field) {
+            if (isset($logOptions['json'][$field])) {
+                $logOptions['json'][$field] = 'REDACTED';
+            }
+        }
+
         try {
             $response = $this->getClient()->request($method, $uri, $options);
         } catch (GuzzleException $e) {
-            Log::http('error', '【MKT-KS】', ['uri' => $uri, 'options' => $options, 'message' => $e->getMessage()]);
+            Log::http('error', '【MKT-KS】', ['uri' => $uri, 'options' => $logOptions, 'message' => $e->getMessage()]);
             throw new Exception($e->getMessage());
         }
 
         $content = (array)json_decode($response->getBody()->getContents(), true);
 
         if (($content['code'] ?? -1) !== 0) {
-            Log::http('info', '【MKT-KS】', ['uri' => $uri, 'options' => $options, 'response' => $content]);
+            Log::http('info', '【MKT-KS】', ['uri' => $uri, 'options' => $logOptions, 'response' => $content]);
             throw new Exception($content['message'] ?? '响应异常');
         }
 
@@ -80,6 +90,8 @@ class MktKs extends MktAbstract
             'access_time' => time() + $data['access_token_expires_in'],
             'refresh_token' => $data['refresh_token'],
             'refresh_time' => time() + $data['refresh_token_expires_in'],
+            'user_id' => $data['user_id'] ?? '',
+            'advertiser_id' => $data['advertiser_id'] ?? '',
         ];
     }
 
@@ -106,6 +118,8 @@ class MktKs extends MktAbstract
             'access_time' => time() + $data['access_token_expires_in'],
             'refresh_token' => $data['refresh_token'],
             'refresh_time' => time() + $data['refresh_token_expires_in'],
+            'user_id' => $data['user_id'] ?? '',
+            'advertiser_id' => $data['advertiser_id'] ?? '',
         ];
     }
 
