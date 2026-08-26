@@ -297,12 +297,13 @@ class MktJl extends MktAbstract
      * @param string $advertiserId
      * @param string $date
      * @param string $granularity
+     * @param string $advertiserName
      * @return array
      * @throws Exception
      */
-    public function reportAdvertiserGet(string $advertiserId, string $date, $granularity = 'daily')
+    public function reportAdvertiserGet(string $advertiserId, string $date, $granularity = 'daily', $advertiserName = '')
     {
-        return $this->reportAdvertiserGet_V3($advertiserId, $date, $granularity);
+        return $this->reportAdvertiserGet_V3($advertiserId, $date, $granularity, 1, 100, (string)$advertiserName);
 
         $timeGranularity = sprintf('STAT_TIME_GRANULARITY_%s', strtoupper($granularity) == 'DAILY' ? 'DAILY' : 'HOURLY');
 
@@ -333,7 +334,7 @@ class MktJl extends MktAbstract
         return $list;
     }
 
-    public function reportAdvertiserGet_V3(string $advertiserId, string $date, $granularity = 'daily', int $page = 1, int $pageSize = 100) {
+    public function reportAdvertiserGet_V3(string $advertiserId, string $date, $granularity = 'daily', int $page = 1, int $pageSize = 100, string $advertiserName = '') {
 
         $granularity = $granularity == 'daily' ? 'stat_time_day' : 'stat_time_hour';
         $fieldId = 'cdp_promotion_id';
@@ -355,7 +356,7 @@ class MktJl extends MktAbstract
         $this->log(__LINE__, "reportCustom request", [
             $advertiserId, $date, $dimensions, $filters, $page, $pageSize
         ]);
-        $data = $this->reportCustom($advertiserId, $date, $dimensions, $filters, $page, $pageSize);
+        $data = $this->reportCustom($advertiserId, $date, $dimensions, $filters, $page, $pageSize, $advertiserName);
         $this->log(__LINE__, "reportCustom response", $data);
 
         $list = [];
@@ -571,10 +572,11 @@ class MktJl extends MktAbstract
      * @param string $granularity
      * @param int $page
      * @param int $pageSize
+     * @param string $advertiserName
      * @return array
      * @throws Exception
      */
-    public function reportProjectGet(string $advertiserId, string $date, array $projectIds = [], $granularity = 'daily', int $page = 1, int $pageSize = 100)
+    public function reportProjectGet(string $advertiserId, string $date, array $projectIds = [], $granularity = 'daily', int $page = 1, int $pageSize = 100, string $advertiserName = '')
     {
         $granularity = $granularity == 'daily' ? 'stat_time_day' : 'stat_time_hour';
         $fieldId = 'cdp_project_id';
@@ -592,7 +594,7 @@ class MktJl extends MktAbstract
             ]
         ];
 
-        $data = $this->reportCustom($advertiserId, $date, $dimensions, $filters, $page, $pageSize);
+        $data = $this->reportCustom($advertiserId, $date, $dimensions, $filters, $page, $pageSize, $advertiserName);
 
         $list = [];
         foreach ($data['rows'] ?? [] as $v) {
@@ -655,10 +657,11 @@ class MktJl extends MktAbstract
      * @param string $granularity
      * @param int $page
      * @param int $pageSize
+     * @param string $advertiserName
      * @return array
      * @throws Exception
      */
-    public function reportAdGet(string $advertiserId, string $date, array $adIds = [], $granularity = 'daily', int $page = 1, int $pageSize = 100)
+    public function reportAdGet(string $advertiserId, string $date, array $adIds = [], $granularity = 'daily', int $page = 1, int $pageSize = 100, string $advertiserName = '')
     {
         $granularity = $granularity == 'daily' ? 'stat_time_day' : 'stat_time_hour';
         $fieldId = 'cdp_promotion_id';
@@ -677,7 +680,7 @@ class MktJl extends MktAbstract
             ]
         ];
 
-        $data = $this->reportCustom($advertiserId, $date, $dimensions, $filters, $page, $pageSize);
+        $data = $this->reportCustom($advertiserId, $date, $dimensions, $filters, $page, $pageSize, $advertiserName);
 
         $list = [];
         foreach ($data['rows'] ?? [] as $v) {
@@ -881,16 +884,18 @@ class MktJl extends MktAbstract
      * @param array $filters
      * @param int $page
      * @param int $pageSize
+     * @param string $advertiserName
      * @return array
      * @throws Exception
      */
-    public function reportCustom(string $advertiserId, string $date, array $dimensions = [], $filters = [], int $page = 1, int $pageSize = 100)
+    public function reportCustom(string $advertiserId, string $date, array $dimensions = [], $filters = [], int $page = 1, int $pageSize = 100, string $advertiserName = '')
     {
         $date = date('Y-m-d', strtotime($date));
+        $dataTopic = stripos($advertiserName, '智擎') !== false ? 'STD_BASIC_DATA' : 'BASIC_DATA';
 
         $params = [
             'advertiser_id' => $advertiserId,
-            'data_topic' => 'BASIC_DATA',
+            'data_topic' => $dataTopic,
             'dimensions' => $dimensions,
             'start_time' => $date,
             'end_time' => $date,

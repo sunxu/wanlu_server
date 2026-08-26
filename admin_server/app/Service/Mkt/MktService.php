@@ -593,7 +593,11 @@ class MktService
         // 百度
         $this->bd($model->platform, $advertiserId, $model->advertiser_name);
 
-        $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'daily', $model->extra['search'] ?? false);
+        if ($model->platform == MktConst::PLATFORM_JL) {
+            $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'daily', (string)$model->advertiser_name);
+        } else {
+            $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'daily', $model->extra['search'] ?? false);
+        }
 
         $data = $list[0] ?? [];
 
@@ -636,7 +640,11 @@ class MktService
         // 百度
         $this->bd($model->platform, $advertiserId, $model->advertiser_name);
 
-        $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly', $model->advertiser->extra['search'] ?? false);
+        if ($model->platform == MktConst::PLATFORM_JL) {
+            $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly', (string)$model->advertiser_name);
+        } else {
+            $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly', $model->advertiser->extra['search'] ?? false);
+        }
 
         if (empty($list) || array_sum(array_column($list, 'cost')) <= 0) {
             return;
@@ -688,7 +696,7 @@ class MktService
         while ($page <= $totalPage) {
 
             try {
-                $data = $mkt->reportProjectGet($advertiserId, $date, [], 'daily', $page, $pageSize);
+                $data = $mkt->reportProjectGet($advertiserId, $date, [], 'daily', $page, $pageSize, (string)$model->advertiser_name);
             } catch (Exception $e) {
                 throw new Exception($e->getMessage());
             }
@@ -746,7 +754,7 @@ class MktService
         while ($page <= $totalPage) {
 
             try {
-                $data = $mkt->reportAdGet($advertiserId, $date, [], 'daily', $page, $pageSize);
+                $data = $mkt->reportAdGet($advertiserId, $date, [], 'daily', $page, $pageSize, (string)$model->advertiser_name);
             } catch (Exception $e) {
                 throw new Exception($e->getMessage());
             }
