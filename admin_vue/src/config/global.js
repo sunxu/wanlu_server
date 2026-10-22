@@ -5,7 +5,8 @@ const SOURCE_MAP = {
   op : 'OPPO',
   hw : '华为',
   vi : 'vivo',
-  bd : '百度'
+  bd : '百度',
+  tx: '腾讯营销'
 }
 //投放方式
 const LAUNCH_TYPE_MAP = {

@@ -32,6 +32,7 @@ class TableMarket extends Command
         'app_%s_huawei',
         'app_%s_vivo',
         'app_%s_bd',
+        'app_%s_tx',
     ];
 
     /**

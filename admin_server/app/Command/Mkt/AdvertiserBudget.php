@@ -54,7 +54,7 @@ class AdvertiserBudget extends HyperfCommand
                 ->leftJoin('mkt_advertiser as ma', 'ma.advertiser_id', '=', 'rda.advertiser_id')
                 ->where('rda.date', date('Y-m-d'))
                 ->where('ma.account_id', $v)
-                ->whereIn('rda.platform', [MktConst::PLATFORM_JL, MktConst::PLATFORM_KS])
+                ->whereIn('rda.platform', [MktConst::PLATFORM_JL, MktConst::PLATFORM_KS, MktConst::PLATFORM_TX])
                 ->pluck('rda.advertiser_id')
                 ->toArray();
 

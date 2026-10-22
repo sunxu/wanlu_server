@@ -17,7 +17,7 @@ class CommonController extends AbstractController
 
         $appCode = data_get($params, 'app_code', 'app_code');
         $list = MktAdvertiser::query()
-            ->select(['advertiser_id', Db::raw('CONCAT(advertiser_id,advertiser_name) as advertiser_name')])
+            ->select(['advertiser_id', 'platform', Db::raw('CONCAT(advertiser_id,advertiser_name) as advertiser_name')])
             ->where('app_code', $appCode)
             ->get()
             ->toArray();
@@ -95,7 +95,7 @@ class CommonController extends AbstractController
 
     public function getAdvertisers(string $appCode)
     {
-        $result = MktAdvertiser::select(['advertiser_id', 'advertiser_name'])
+        $result = MktAdvertiser::select(['advertiser_id', 'advertiser_name', 'platform'])
             ->where('app_code', $appCode)
             ->orderby('updated_time', 'desc')->get()->all();
 

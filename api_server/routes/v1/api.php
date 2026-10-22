@@ -20,6 +20,7 @@ $router->group([
     $router->get('ad/hw/{appCode}', 'V1\AdController@hw');
     $router->get('ad/vi/{appCode}', 'V1\AdController@vi');
     $router->get('ad/bd/{appCode}', 'V1\AdController@bd');
+    $router->get('ad/tx/{appCode}', 'V1\AdController@tx');
     $router->get('ad/honor/{appCode}', 'V1\AdController@honor');
 });
 

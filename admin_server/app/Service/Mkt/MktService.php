@@ -23,6 +23,7 @@ use App\Utils\Log;
 use Exception;
 use Hyperf\Database\Model\Collection;
 use Hyperf\Database\Model\Model;
+use Hyperf\DbConnection\Db;
 
 class MktService
 {
@@ -56,6 +57,32 @@ class MktService
         $this->bd($app->platform, $authCode, $userId);
 
         $userToken = $mkt->authAccessToken($authCode);
+
+        // 腾讯直客：先查询并校验身份，再原子保存现有三层授权关系。
+        if ($app->platform === MktConst::PLATFORM_TX) {
+            $accountId = $userToken['account_id'];
+            $mkt->setToken($userToken['access_token']);
+            $advertiser = $mkt->advertiserGet($accountId)[0];
+            Db::transaction(function () use ($userToken, $accountId, $advertiser) {
+                $user = MktUser::query()->where('user_id', $userToken['user_id'])->lockForUpdate()->first();
+                if ($user && (string)$user->app_id !== (string)$userToken['app_id']) {
+                    throw new Exception('腾讯授权用户ID与已有应用冲突');
+                }
+                $account = MktAccount::query()->where('account_id', $accountId)->lockForUpdate()->first();
+                if ($account && (string)$account->user_id !== $userToken['user_id']) {
+                    throw new Exception('腾讯账户ID与已有授权关系冲突');
+                }
+                $this->saveUser($userToken);
+                $this->saveAccount([
+                    'user_id' => $userToken['user_id'], 'account_id' => $accountId,
+                    'account_name' => $advertiser['advertiser_name'],
+                    'account_role' => $userToken['account_role'], 'is_valid' => 1,
+                ]);
+                $advertiser['platform'] = MktConst::PLATFORM_TX;
+                $this->saveAdvertiser($advertiser);
+            });
+            return;
+        }
 
         // 巨量
         if ($app->platform == MktConst::PLATFORM_JL) {
@@ -305,19 +332,33 @@ class MktService
         $mkt = $this->getMkt($model->platform);
         $mkt->setToken($model->account->user->access_token);
 
+        if ($model->platform === MktConst::PLATFORM_TX) {
+            $mkt->setAppInfo($model->extra ?? []);
+        }
         $this->oppo($mkt, $model);
 
         // 百度
         $this->bd($model->platform, $advertiserId, $model->advertiser_name);
 
         $page = 1;
+        $cursor = '';
+        $seenCursors = [];
         $pageSize = $model->platform == MktConst::PLATFORM_HW ? 50 : 100;
         $totalPage = 1;
 
         while ($page <= $totalPage) {
 
             try {
-                $data = $mkt->planGet($advertiserId, $page, $pageSize, $planIds, $model->extra['search'] ?? false);
+                $data = $model->platform === MktConst::PLATFORM_TX
+                    ? $mkt->planGet($advertiserId, $page, $pageSize, $planIds, false, $cursor)
+                    : $mkt->planGet($advertiserId, $page, $pageSize, $planIds, $model->extra['search'] ?? false);
+                if ($model->platform === MktConst::PLATFORM_TX && $data['page_info']['total_page'] > $page) {
+                    $cursor = $data['next_cursor'];
+                    if (isset($seenCursors[$cursor])) {
+                        throw new Exception('腾讯营销单元分页游标重复');
+                    }
+                    $seenCursors[$cursor] = true;
+                }
             } catch (Exception $e) {
                 throw new Exception($e->getMessage());
             }
@@ -496,6 +537,10 @@ class MktService
             throw new Exception('invalid planId:' . $planId);
         }
 
+        if ($model->advertiser->platform === MktConst::PLATFORM_TX) {
+            throw new Exception('腾讯营销投放配置仅支持查询');
+        }
+
         $mkt = $this->getMkt($model->advertiser->platform);
         $mkt->setToken($model->advertiser->account->user->access_token);
 
@@ -521,6 +566,10 @@ class MktService
             throw new Exception('invalid planId:' . $planId);
         }
 
+        if ($model->advertiser->platform === MktConst::PLATFORM_TX) {
+            throw new Exception('腾讯营销投放配置仅支持查询');
+        }
+
         $mkt = $this->getMkt($model->advertiser->platform);
         $mkt->setToken($model->advertiser->account->user->access_token);
 
@@ -543,6 +592,10 @@ class MktService
 
         if (!$model) {
             throw new Exception('invalid planId:' . $planId);
+        }
+
+        if ($model->advertiser->platform === MktConst::PLATFORM_TX) {
+            throw new Exception('腾讯营销投放配置仅支持查询');
         }
 
         $mkt = $this->getMkt($model->advertiser->platform);
@@ -588,6 +641,9 @@ class MktService
 
         $mkt = $this->getMkt($model->platform);
         $mkt->setToken($model->account->user->access_token);
+        if ($model->platform === MktConst::PLATFORM_TX) {
+            $mkt->setAppInfo($model->extra ?? []);
+        }
         $this->oppo($mkt, $model);
 
         // 百度
@@ -601,7 +657,7 @@ class MktService
 
         $data = $list[0] ?? [];
 
-        if (!empty($data) && $data['cost'] > 0) {
+        if (!empty($data) && ($data['cost'] > 0 || $model->platform === MktConst::PLATFORM_TX)) {
 
             $report = ReportDailyAdvertiser::query()
                 ->where('date', $data['date'])
@@ -612,6 +668,9 @@ class MktService
                 $report = new ReportDailyAdvertiser();
             }
 
+            if ($report->exists && $report->platform !== $model->platform && in_array(MktConst::PLATFORM_TX, [$model->platform, $report->platform], true)) {
+                throw new Exception('腾讯广告主报表与已有平台数据冲突，拒绝覆盖');
+            }
             $data['app_code'] = $model->app_code;
             $data['platform'] = $model->platform;
 
@@ -635,6 +694,9 @@ class MktService
 
         $mkt = $this->getMkt($model->platform);
         $mkt->setToken($model->account->user->access_token);
+        if ($model->platform === MktConst::PLATFORM_TX) {
+            $mkt->setAppInfo($model->extra ?? []);
+        }
         $this->oppo($mkt, $model);
 
         // 百度
@@ -643,10 +705,10 @@ class MktService
         if ($model->platform == MktConst::PLATFORM_JL) {
             $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly', (string)$model->advertiser_name);
         } else {
-            $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly', $model->advertiser->extra['search'] ?? false);
+            $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly', $model->extra['search'] ?? false);
         }
 
-        if (empty($list) || array_sum(array_column($list, 'cost')) <= 0) {
+        if (empty($list) || (array_sum(array_column($list, 'cost')) <= 0 && $model->platform !== MktConst::PLATFORM_TX)) {
             return;
         }
 
@@ -804,6 +866,9 @@ class MktService
 
         $mkt = $this->getMkt($model->platform);
         $mkt->setToken($model->account->user->access_token);
+        if ($model->platform === MktConst::PLATFORM_TX) {
+            $mkt->setAppInfo($model->extra ?? []);
+        }
         $this->oppo($mkt, $model);
 
         // 百度
@@ -831,7 +896,7 @@ class MktService
 
             foreach ($data['list'] ?? [] as $value) {
 
-                if ($value['cost'] <= 0) {
+                if ($value['cost'] <= 0 && $model->platform !== MktConst::PLATFORM_TX) {
                     continue;
                 }
 
@@ -847,6 +912,9 @@ class MktService
                     $report = new ReportDailyPlan();
                 }
 
+                if ($report->exists && in_array(MktConst::PLATFORM_TX, [$model->platform, $report->platform], true) && ((string)$report->advertiser_id !== (string)$advertiserId || $report->platform !== $model->platform)) {
+                    throw new Exception('腾讯报表ID与已有平台数据冲突，拒绝覆盖');
+                }
                 $report->fill($value)->save();
             }
         }
@@ -893,7 +961,7 @@ class MktService
 
             foreach ($data['list'] ?? [] as $value) {
 
-                if ($value['cost'] <= 0) {
+                if ($value['cost'] <= 0 && $model->platform !== MktConst::PLATFORM_TX) {
                     continue;
                 }
 
@@ -909,6 +977,9 @@ class MktService
                     $report = new ReportDailyPlan();
                 }
 
+                if ($report->exists && in_array(MktConst::PLATFORM_TX, [$model->platform, $report->platform], true) && ((string)$report->advertiser_id !== (string)$advertiserId || $report->platform !== $model->platform)) {
+                    throw new Exception('腾讯报表ID与已有平台数据冲突，拒绝覆盖');
+                }
                 $report->fill($value)->save();
             }
         }
@@ -1006,6 +1077,12 @@ class MktService
     protected function saveUser(array $data)
     {
         $model = MktUser::find($data['user_id']);
+        if ($model && isset($data['app_id']) && (string)$model->app_id !== (string)$data['app_id']) {
+            $incomingApp = MktApp::find($data['app_id']);
+            if (($model->app && $model->app->platform === MktConst::PLATFORM_TX) || ($incomingApp && $incomingApp->platform === MktConst::PLATFORM_TX)) {
+                throw new Exception('腾讯授权用户ID与已有应用冲突，拒绝覆盖');
+            }
+        }
 
         if (!$model) {
             $model = new MktUser();
@@ -1022,6 +1099,14 @@ class MktService
     protected function saveAccount(array $data)
     {
         $model = MktAccount::find($data['account_id']);
+        if ($model && (string)$model->user_id !== (string)$data['user_id']) {
+            $incomingUser = MktUser::find($data['user_id']);
+            $oldPlatform = $model->user && $model->user->app ? $model->user->app->platform : null;
+            $newPlatform = $incomingUser && $incomingUser->app ? $incomingUser->app->platform : null;
+            if ($oldPlatform === MktConst::PLATFORM_TX || $newPlatform === MktConst::PLATFORM_TX) {
+                throw new Exception('腾讯账户ID与已有授权关系冲突，拒绝覆盖');
+            }
+        }
 
         if (!$model) {
             $model = new MktAccount();
@@ -1038,7 +1123,13 @@ class MktService
     protected function saveAdvertiser(array $data)
     {
         $model = MktAdvertiser::find($data['advertiser_id']);
+        if ($model && $model->platform !== $data['platform'] && in_array(MktConst::PLATFORM_TX, [$model->platform, $data['platform']], true)) {
+            throw new Exception('广告主ID与其他投放平台冲突，拒绝覆盖');
+        }
 
+        if ($model && $data['platform'] === MktConst::PLATFORM_TX && (string)$model->account_id !== (string)$data['account_id']) {
+            throw new Exception('腾讯广告主ID与已有账户绑定冲突，拒绝覆盖');
+        }
         if ($model && !empty($model->app_code) && $model->advertiser_name == $data['advertiser_name']) {
             return true;
         }
@@ -1077,6 +1168,12 @@ class MktService
     protected function savePlan(array $data)
     {
         $model = MktPlan::find($data['plan_id']);
+        if ($model && (string)$model->advertiser_id !== (string)$data['advertiser_id']) {
+            $incoming = MktAdvertiser::find($data['advertiser_id']);
+            if (($incoming && $incoming->platform === MktConst::PLATFORM_TX) || ($model->advertiser && $model->advertiser->platform === MktConst::PLATFORM_TX)) {
+                throw new Exception('腾讯计划ID与已有广告主计划冲突，拒绝覆盖');
+            }
+        }
 
         if (!$model) {
             $model = new MktPlan();

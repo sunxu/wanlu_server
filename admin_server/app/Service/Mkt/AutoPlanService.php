@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Service\Mkt;
 
 use App\Constants\AppConst;
+use App\Constants\MktConst;
 use App\Constants\ErrorCode;
 use App\Exception\BusinessException;
 use App\Model\App;
@@ -57,6 +58,9 @@ class AutoPlanService
      */
     protected function getAdvertiserIds(string $appCode, $planId, ?array $advertiserIds, array $thresholdKeys)
     {
+        if ($advertiserIds && MktAdvertiser::query()->whereIn('advertiser_id', $advertiserIds)->where('platform', MktConst::PLATFORM_TX)->exists()) {
+            throw new \InvalidArgumentException('腾讯营销不支持自动规则');
+        }
         // 如果为空则为全部广告主 全部广告主不做覆盖判断
         if (!$advertiserIds) {
             return ['isAll' => 1, 'ids' => []];
@@ -109,7 +113,7 @@ class AutoPlanService
                 $query->where('plan_id', '<>', $planId);
             })
             ->get()->all();
-        $advertisersInfo = MktAdvertiser::select(['advertiser_id', 'advertiser_name'])
+        $advertisersInfo = MktAdvertiser::select(['advertiser_id', 'advertiser_name'])->where('platform', '!=', MktConst::PLATFORM_TX)
             ->when($advertiserIds, function ($query, $advertiserIds) {
                 $query->whereIn('advertiser_id', $advertiserIds);
             })
@@ -158,7 +162,7 @@ class AutoPlanService
             ->orderBy('created_time', 'desc')
             ->orderBy('updated_time', 'desc')
             ->paginate(intval(data_get($params, 'per_page', 10)));
-        $advertiserList = MktAdvertiser::select(['advertiser_id', 'advertiser_name'])
+        $advertiserList = MktAdvertiser::select(['advertiser_id', 'advertiser_name'])->where('platform', '!=', MktConst::PLATFORM_TX)
             ->where('app_code', $appCode)
             ->get()->all();
         $planList = collect($planListPaginate->items())->map(function ($item) use ($advertiserList) {
@@ -230,12 +234,12 @@ class AutoPlanService
                     $appCode = data_get($plan, 'app_code');
                     $advertiserIds = data_get($plan, 'advertisers.ids');
                     if (data_get($plan, 'advertisers.isAll') == 1) {
-                        $advertiserIds = MktAdvertiser::select(['advertiser_id'])
+                        $advertiserIds = MktAdvertiser::select(['advertiser_id'])->where('platform', '!=', MktConst::PLATFORM_TX)
                             ->where('app_code', data_get($plan, 'app_code'))
                             ->where('status', 1)
                             ->get()->pluck('advertiser_id')->all();
                     }
-                    $adIds = ReportDailyAd::select('ad_id')
+                    $adIds = ReportDailyAd::select('ad_id')->where('platform', '!=', MktConst::PLATFORM_TX)
                         ->whereIn('advertiser_id', $advertiserIds)
                         ->where('date', date('Y-m-d'))
                         ->get()->pluck('ad_id')->all();

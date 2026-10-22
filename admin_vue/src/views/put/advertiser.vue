@@ -35,6 +35,7 @@
         </el-radio-group>
       </el-col>
       <el-col :span="12">
+        <el-button @click="showTencentAuth" style="float: right;">腾讯营销授权</el-button>
         <el-button type="primary" icon="el-icon-search" @click="onSearch" style="float: right; margin-right: 10px;">搜索
         </el-button>
       </el-col>
@@ -128,6 +129,17 @@
       :limit.sync="search.page_size"
       @pagination="fetchData"
     />
+
+    <el-dialog :visible.sync="tencentAuthVisible" title="腾讯营销授权" width="480px">
+      <el-select v-model="tencentAppId" placeholder="请选择已配置的腾讯开放平台应用" style="width: 100%;">
+        <el-option v-for="app in tencentApps" :key="app.app_id" :label="app.app_name + ' (' + app.app_id + ')'" :value="app.app_id" />
+      </el-select>
+      <p v-if="!tencentApps.length">暂无腾讯开放平台应用，请先完成应用配置。</p>
+      <span slot="footer">
+        <el-button @click="tencentAuthVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!tencentAppId" :loading="tencentAuthLoading" @click="authorizeTencent">前往授权</el-button>
+      </span>
+    </el-dialog>
 
     <el-dialog :visible.sync="save_dialog_visible" :title="save_dialog_title" width="600px">
       <el-form label-position="left" label-width="150px" :model="save_data">
@@ -251,7 +263,7 @@ import {getCurrentApp} from "@/utils/auth"
 import Pagination from '@/components/Pagination'
 import JsonEditor from '@/components/JsonEditor'
 import {Message} from "element-ui"
-import {getList, bindApp, saveData,updateStatus} from "@/api/put/advertiser"
+import {getList, bindApp, saveData,updateStatus, tencentApplications, tencentAuthorize} from "@/api/put/advertiser"
 
 export default {
   components: {Pagination, JsonEditor},
@@ -271,6 +283,10 @@ export default {
       list: null,
       listLoading: false,
       save_loading: false,
+      tencentAuthVisible: false,
+      tencentAuthLoading: false,
+      tencentApps: [],
+      tencentAppId: '',
       source_map: _.clone(this.$global.SOURCE_MAP),
       launch_type_map: _.clone(this.$global.LAUNCH_TYPE_MAP),
       status_map: {
@@ -305,6 +321,31 @@ export default {
     this.onSearch()
   },
   methods: {
+    async showTencentAuth() {
+      const response = await tencentApplications()
+      this.tencentApps = response.data.records || []
+      this.tencentAppId = this.tencentApps.length === 1 ? this.tencentApps[0].app_id : ''
+      this.tencentAuthVisible = true
+    },
+    async authorizeTencent() {
+      // 同步创建标签页以避免异步请求结束后被浏览器当成弹窗拦截。
+      const authWindow = window.open('about:blank', '_blank')
+      if (authWindow) authWindow.opener = null
+      this.tencentAuthLoading = true
+      try {
+        const response = await tencentAuthorize(this.tencentAppId)
+        if (authWindow) {
+          authWindow.location.href = response.data.url
+        } else {
+          window.location.assign(response.data.url)
+        }
+        this.tencentAuthVisible = false
+      } catch (error) {
+        if (authWindow) authWindow.close()
+      } finally {
+        this.tencentAuthLoading = false
+      }
+    },
     onSearch() {
       if (!this.search.app_code) {
         Message({

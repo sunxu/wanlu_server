@@ -93,7 +93,8 @@ export default {
       ],
       sources: [
         { code: '1', name: '巨量' },
-        { code: '2', name: '快手' }
+        { code: '2', name: '快手' },
+        { code: '8', name: '腾讯营销' }
       ],
       hourCondition: undefined,
       ecpmCondition: undefined,

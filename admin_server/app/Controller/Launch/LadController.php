@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller\Launch;
 
 use App\Controller\AbstractController;
+use App\Constants\MktConst;
 use App\Model\Mkt\MktAdvertiser;
 use Hyperf\DbConnection\Db;
 use Hyperf\HttpServer\Contract\RequestInterface;
@@ -18,10 +19,9 @@ class LadController extends AbstractController
         $plat = $request->input('plat');
         //查询应用下面的广告主
         $query = MktAdvertiser::where('app_code', $app_code);
-        if ($plat == 2) {
-            $query->where('platform', 'ks');
-        } else if ($plat == 1) {
-            $query->where('platform', 'jl');
+        $platform = array_search((int) $plat, MktConst::PLATFORM_SOURCE, true);
+        if ($platform !== false) {
+            $query->where('platform', $platform);
         }
         $advertisers = $query->get()->all();
         $advertisers = json_decode(json_encode($advertisers), true);
@@ -67,7 +67,7 @@ class LadController extends AbstractController
 
         $app_code = $request->query('appcode', 'wifi');
         $launch_type = $request->query('launch_type');  //1 关键行为 0 双出
-        $plat = $request->query('plat');  //1 巨量 2 快手
+        $plat = $request->query('plat');  //平台数字来源，映射见 MktConst::PLATFORM_SOURCE
         $advertiser_ids = $request->query('advertiser');
         $page = $request->query('page', 1);
         $size = $request->query('limit', 20);
@@ -85,10 +85,9 @@ class LadController extends AbstractController
         }
 
         $where = " and a.app_code = '{$app_code}'";
-        if ($plat == 2) {
-            $where .= " and a.platform = 'ks'";
-        } else if ($plat == 1) {
-            $where .= " and a.platform = 'jl'";
+        $platform = array_search((int) $plat, MktConst::PLATFORM_SOURCE, true);
+        if ($platform !== false) {
+            $where .= " and a.platform = '{$platform}'";
         }
 
         if ($launch_type == 1) {
@@ -142,7 +141,7 @@ left join report_daily_advertiser_ext c on a.id = c.id
         }
         $app_code = $request->query('appcode', 'wifi');
         $launch_type = $request->query('launch_type');  //1 关键行为 0 双出
-        $plat = $request->query('plat');  //1 巨量 2 快手
+        $plat = $request->query('plat');  //平台数字来源，映射见 MktConst::PLATFORM_SOURCE
         $ad_id = $request->query('ad_id');
         $advertiser_ids = $request->query('advertiser');
         $page = $request->query('page', 1);
@@ -161,10 +160,9 @@ left join report_daily_advertiser_ext c on a.id = c.id
         }
 
         $where = " and a.app_code = '{$app_code}'";
-        if ($plat == 2) {
-            $where .= " and a.platform = 'ks'";
-        } else if ($plat == 1) {
-            $where .= " and a.platform = 'jl'";
+        $platform = array_search((int) $plat, MktConst::PLATFORM_SOURCE, true);
+        if ($platform !== false) {
+            $where .= " and a.platform = '{$platform}'";
         }
         if ($launch_type == 1) {
             $where .= ' and b.launch_type =1';
@@ -224,7 +222,7 @@ left join report_daily_plan_ext c on a.id = c.id left join mkt_plan as d on a.pl
         }
         $app_code = $request->query('appcode', '');
         $launch_type = $request->query('launch_type');  //1 关键行为 0 双出
-        $plat = $request->query('plat');  //1 巨量 2 快手
+        $plat = $request->query('plat');  //平台数字来源，映射见 MktConst::PLATFORM_SOURCE
         $advertiser_ids = $request->query('advertiser');
         $page = $request->query('page', 1);
         $size = $request->query('limit', 20);
@@ -235,10 +233,9 @@ left join report_daily_plan_ext c on a.id = c.id left join mkt_plan as d on a.pl
             'active_pre_cost', 'activate_withdraw', 'active_num',];
 
         $where = " and a.app_code = '{$app_code}'";
-        if ($plat == 2) {
-            $where .= " and a.platform = 'ks'";
-        } else if ($plat == 1) {
-            $where .= " and a.platform = 'jl'";
+        $platform = array_search((int) $plat, MktConst::PLATFORM_SOURCE, true);
+        if ($platform !== false) {
+            $where .= " and a.platform = '{$platform}'";
         }
         if ($launch_type == 1) {
             $where .= ' and b.launch_type =1';
@@ -312,7 +309,7 @@ left join report_daily_plan_ext c on a.id = c.id left join mkt_plan as d on a.pl
         $app_code = $request->query('appcode', '');
         $status = $request->query('status');
         $launch_type = $request->query('launch_type');  //1 关键行为 0 双出
-        $plat = $request->query('plat');  //1 巨量 2 快手
+        $plat = $request->query('plat');  //平台数字来源，映射见 MktConst::PLATFORM_SOURCE
         $plan_ids = $request->query('ad_id');
         $advertiser_ids = $request->query('advertiser');
         $page = $request->query('page', 1);
@@ -324,10 +321,9 @@ left join report_daily_plan_ext c on a.id = c.id left join mkt_plan as d on a.pl
             'active_pre_cost', 'activate_withdraw', 'active_num',];
 
         $where = " and a.app_code = '{$app_code}'";
-        if ($plat == 2) {
-            $where .= " and b.platform = 'ks'";
-        } else if ($plat == 1) {
-            $where .= " and b.platform = 'jl'";
+        $platform = array_search((int) $plat, MktConst::PLATFORM_SOURCE, true);
+        if ($platform !== false) {
+            $where .= " and b.platform = '{$platform}'";
         }
         if ($launch_type == 1) {
             $where .= ' and b.launch_type =1';
@@ -979,14 +975,9 @@ left join report_daily_plan_ext c on a.id = c.id left join mkt_plan as d on a.pl
                 }
             })
             ->where(function ($query) use ($source) {
-                if (!empty($source)) {
-                    if ($source == 1) {
-                        $query->where('b.platform', "jl");
-                    } else {
-                        $query->where('b.platform', "ks");
-                    }
-                } else {
-                    $query->whereBetween('b.platform', ["jl", "ks"]);
+                $platform = array_search((int) $source, MktConst::PLATFORM_SOURCE, true);
+                if ($platform !== false) {
+                    $query->where('b.platform', $platform);
                 }
             })
             ->whereBetween('a.date', [$start_date, $end_date]);
@@ -1103,14 +1094,9 @@ left join report_daily_plan_ext c on a.id = c.id left join mkt_plan as d on a.pl
                 }
             })
             ->where(function ($query) use ($source) {
-                if (!empty($source)) {
-                    if ($source == 1) {
-                        $query->where('b.platform', "jl");
-                    } else {
-                        $query->where('b.platform', "ks");
-                    }
-                } else {
-                    $query->whereBetween('b.platform', ["jl", "ks"]);
+                $platform = array_search((int) $source, MktConst::PLATFORM_SOURCE, true);
+                if ($platform !== false) {
+                    $query->where('b.platform', $platform);
                 }
             })
             ->whereBetween('a.date', [$start_date, $end_date]);

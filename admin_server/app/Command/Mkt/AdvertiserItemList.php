@@ -61,7 +61,7 @@ class AdvertiserItemList extends HyperfCommand
 
         $model = $this->getMode();
 
-        !empty($appCode) && $model->where($this->appCode, $value);
+        !empty($appCode) && $model->where($this->appCode, $appCode);
         !empty($value) && $model->where($this->key, $value);
 
         // 仅处理自投应用

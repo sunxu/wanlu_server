@@ -37,6 +37,7 @@ class GuiyinService
         $sourceVI = AdConst::PUT_SOURCE_MAP[AdConst::PUT_SOURCE_VI];
         $sourceBD = AdConst::PUT_SOURCE_MAP[AdConst::PUT_SOURCE_BD];
         $sourceHONOR = AdConst::PUT_SOURCE_MAP[AdConst::PUT_SOURCE_HONOR];
+        $sourceTX = AdConst::PUT_SOURCE_MAP[AdConst::PUT_SOURCE_TX];
 
         // 优先级别是OAID（可获取、一致性）>IMEI（Android10+无法获取、一致性）>AndoridID（可获取、非一致性）>MAC（Android10+无法获取、一致性）
         $filter = [
@@ -47,6 +48,7 @@ class GuiyinService
             $sourceVI => [],// vivo
             $sourceBD => [],// 百度
             $sourceHONOR => [],
+            $sourceTX => [],// 腾讯营销，保持其他平台既有匹配顺序
         ];
 
         if (!empty($deivce['req_id'])) {
@@ -145,13 +147,25 @@ class GuiyinService
             };
         }
 
+        // 腾讯下发 OAID 原值；AndroidID、muid 以小写 MD5 存储。
+        if (!empty($device['oaid'])) {
+            $filter[$sourceTX][] = function ($sql) use ($device) { $sql->where('oaid', $device['oaid']); };
+        }
+        if (!empty($device['imei'])) {
+            $filter[$sourceTX][] = function ($sql) use ($device) { $sql->where('imei', md5(strtolower($device['imei']))); };
+        }
+        if (!empty($device['android_id'])) {
+            $filter[$sourceTX][] = function ($sql) use ($device) { $sql->where('android_id', md5($device['android_id'])); };
+        }
+
+        $ad = [];
         foreach ($filter as $source => $where) {
             $tableAd = App::tableAdBySource($appcode, $source);
             if (!Schema::hasTable($tableAd) || empty($where)) {
                 continue;
             }
             $ad = DB::table($tableAd)
-                ->select(['id', 'account_id', 'aid'])
+                ->select(['id', 'account_id', 'aid', 'ts'])
                 ->where('ts', '>', strtotime('-' . self::$maxDays . ' days'))
                 ->where('device_id', '=', '')
                 ->where(function ($sql) use ($where) {
@@ -171,7 +185,10 @@ class GuiyinService
         $appInfo = App::getAppByCode($appcode);
         $attr = self::attribution($device['android_id'], $appInfo['package_name'], $appcode);
         if ($attr === false) {
-            return $ad;
+            if (empty($ad)) {
+                return [];
+            }
+            $attr = []; // 外部归因处理中仍应将本地命中落库。
         }
 
         if (empty($ad) && empty($attr)) {
@@ -187,7 +204,9 @@ class GuiyinService
         } elseif (empty($ad)) {
             return [];
         } else {
-            self::origDBWrite($appcode, $device, $ad, $currTime);
+            if (!self::origDBWrite($appcode, $device, $ad, $currTime)) {
+                return [];
+            }
         }
 
         // 判断激活定义
@@ -306,6 +325,7 @@ class GuiyinService
         }
 
         DB::commit();
+        return true;
     }
 
     public static function attribution($android_id, $package_name, $appcode)

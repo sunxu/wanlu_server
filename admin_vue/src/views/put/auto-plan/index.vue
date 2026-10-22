@@ -129,7 +129,7 @@
 
 <script>
 import { getAppCode } from '@/utils/auth'
-import { advertisers } from '@/api/common'
+import { ruleAdvertisers } from '@/api/put/common'
 import { autoPlanList, checkoutConflict, editAutoPlanEnable } from '@/api/put/auto-planV2'
 import { parseTime } from '@/utils'
 import { Message } from 'element-ui'
@@ -174,7 +174,7 @@ export default {
   },
   methods: {
     getAdvertiserList() {
-      advertisers(getAppCode()).then(response => {
+      ruleAdvertisers(getAppCode()).then(response => {
         const advertiserArr = []
         response.data.records.forEach(function(item) {
           advertiserArr.push({ value: item.advertiser_id, label: item.advertiser_id + '-' + item.advertiser_name })

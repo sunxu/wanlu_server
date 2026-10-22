@@ -1,0 +1,211 @@
+<?php
+/** 隔离协议测试：php tests/tencent_marketing_test.php；不访问数据库或腾讯接口。 */
+
+namespace GuzzleHttp {
+    class Client
+    {
+        public $responses = [];
+        public $requests = [];
+        public function request($method, $uri, $options)
+        {
+            $this->requests[] = [$method, $uri, $options];
+            $response = array_shift($this->responses);
+            if ($response instanceof \Throwable) {
+                throw $response;
+            }
+            return new class($response) {
+                private $body;
+                public function __construct($body) { $this->body = $body; }
+                public function getBody() { return $this->body; }
+            };
+        }
+    }
+}
+
+namespace App\Model\Mkt {
+    class MktApp
+    {
+        public static $apps = [];
+        public static function find($id) { return self::$apps[$id] ?? null; }
+    }
+}
+
+namespace App\Utils {
+    class RedisManager
+    {
+        public static $redis;
+        public static function get() { return self::$redis; }
+    }
+}
+
+namespace App\Service\Mkt {
+    // 授权 state 测试仅记录分发结果，不执行数据库持久化。
+    class MktService
+    {
+        public static $calls = [];
+        public function authUser($appId, $code) { self::$calls[] = [$appId, $code]; }
+    }
+}
+
+namespace {
+    date_default_timezone_set('Asia/Shanghai');
+    $root = dirname(__DIR__);
+    require $root . '/admin_server/app/Library/Mkt/MktAbstract.php';
+    require $root . '/admin_server/app/Library/Mkt/MktTx.php';
+    require $root . '/admin_server/app/Constants/MktConst.php';
+    require $root . '/admin_server/app/Service/Mkt/TencentAuthService.php';
+    require $root . '/api_server/app/Services/Mkt/TencentClick.php';
+    require $root . '/api_server/app/Services/Mkt/TencentService.php';
+    require $root . '/api_server/app/Constants/AdConst.php';
+
+    function make($class) { return new $class(); }
+    function check($condition, $message) {
+        if (!$condition) { throw new \RuntimeException($message); }
+    }
+    function rejects($call, $message) {
+        try { $call(); } catch (\Exception $e) { return $e; }
+        throw new \RuntimeException($message);
+    }
+    function ok($data) { return json_encode(['code' => 0, 'data' => $data]); }
+
+    class TestTx extends \App\Library\Mkt\MktTx
+    {
+        public $http;
+        public function __construct() { $this->http = new \GuzzleHttp\Client(); }
+        public function getClient(string $baseUri = null): \GuzzleHttp\Client { return $this->http; }
+    }
+    $tests = [];
+    $tests['请求编码、金额和比率'] = function () {
+        $tx = (new TestTx())->setToken('test-token');
+        $tx->http->responses[] = ok(['list' => [[
+            'date' => '2026-10-21', 'adgroup_id' => '9007199254740993', 'cost' => 12345,
+            'view_count' => 1000, 'valid_click_count' => 50, 'conversions_count' => 10, 'activated_count' => 5,
+        ]], 'page_info' => ['total_page' => 1]]);
+        $result = $tx->reportPlanGet('123', '2026-10-21');
+        $row = $result['list'][0];
+        check($row['cost'] === 123.45 && $row['active_cost'] === 24.69 && $row['click_rate'] === 5.0, '金额或比率转换错误');
+        check($row['plan_id'] === '9007199254740993', '长 ID 丢失精度');
+        check(!isset($row['key_action']), '不应把总转化数冒充关键行为');
+        $query = $tx->http->requests[0][2]['query'];
+        check(json_decode($query['group_by'], true) === ['date', 'adgroup_id'], '聚合参数编码错误');
+        check(strlen($query['nonce']) === 32 && $query['access_token'] === 'test-token', '通用请求参数缺失');
+    };
+    $tests['零分母与配置化转化指标'] = function () {
+        $tx = (new TestTx())->setToken('test')->setAppInfo(['tx_report_fields' => ['key_action' => 'key_page_view_count', 'next_day_open' => 'test_retained_count']]);
+        $tx->http->responses[] = ok(['list' => [['cost' => 0, 'key_page_view_count' => 3, 'test_retained_count' => 2]], 'page_info' => ['total_page' => 1]]);
+        $row = $tx->reportAdvertiserGet('123', '2026-10-21')[0];
+        check($row['active_rate'] === 0 && $row['key_action'] === 3 && $row['next_day_open'] === 2, '零分母或指标映射错误');
+    };
+    $tests['小时报表跨页与小时编号'] = function () {
+        $tx = (new TestTx())->setToken('test');
+        foreach ([1, 2] as $page) {
+            $tx->http->responses[] = ok(['list' => [['cost' => 100, 'hour' => $page]], 'page_info' => ['total_page' => 2]]);
+        }
+        $rows = $tx->reportAdvertiserGet('123', '2026-10-21', 'hourly');
+        check(count($rows) === 2 && $rows[0]['hour'] === '01' && $rows[1]['hour'] === '02', '小时分页错误');
+        check($tx->http->requests[1][1] === '/v3.0/hourly_reports/get', '小时报表调用了日报接口');
+    };
+    $tests['空报表与频控失败'] = function () {
+        $tx = (new TestTx())->setToken('test');
+        $tx->http->responses[] = ok(['list' => [], 'page_info' => ['total_page' => 0]]);
+        check($tx->reportAdvertiserGet('123', '2026-10-21') === [], '空报表格式错误');
+        $tx->http->responses[] = json_encode(['code' => 100, 'message_cn' => '频控']);
+        rejects(function () use ($tx) { $tx->reportAdvertiserGet('123', '2026-10-21'); }, '接口失败不能被吞成空报表');
+    };
+    $tests['无效指标配置在请求前拒绝'] = function () {
+        $tx = (new TestTx())->setToken('test')->setAppInfo(['tx_report_fields' => ['key_action' => ['invalid']]]);
+        rejects(function () use ($tx) { $tx->reportAdvertiserGet('123', '2026-10-21'); }, '应拒绝无效指标映射');
+        check(!$tx->http->requests, '错误配置不应发送请求');
+    };
+    $tests['网络异常不泄露令牌'] = function () {
+        $tx = (new TestTx())->setToken('secret-token');
+        $tx->http->responses[] = new \Exception('https://api.e.qq.com/example?access_token=secret-token');
+        $error = rejects(function () use ($tx) { $tx->reportAdvertiserGet('123', '2026-10-21'); }, '网络失败必须报错');
+        check(strpos($error->getMessage(), 'secret-token') === false, '网络异常泄露了令牌');
+    };
+    $tests['计划游标、预算和重复游标'] = function () {
+        $tx = (new TestTx())->setToken('test');
+        $tx->http->responses[] = ok(['list' => [['adgroup_id' => 9, 'adgroup_name' => '计划', 'daily_budget' => 12345, 'configured_status' => 'AD_STATUS_SUSPEND']], 'cursor_page_info' => ['has_more' => true, 'cursor' => 'next']]);
+        $result = $tx->planGet('123');
+        check($result['list'][0]['budget_amount'] === 123.45 && $result['list'][0]['put_status'] === 2 && $result['page_info']['total_page'] === 2, '计划转换错误');
+        $tx->http->responses[] = ok(['list' => [], 'cursor_page_info' => ['has_more' => true, 'cursor' => 'next']]);
+        rejects(function () use ($tx) { $tx->planGet('123', 2, 100, [], false, 'next'); }, '重复游标必须终止');
+    };
+    $tests['授权身份及刷新保留语义'] = function () {
+        $tx = (new TestTx())->setApp('456', 'secret')->setAppInfo(['auth_url' => 'https://developers.e.qq.com/oauth/authorize?redirect_uri=https%3A%2F%2Fexample.com%2Fuc%2Fmkt%2Ftencent']);
+        $tx->http->responses[] = ok(['access_token' => 'access', 'refresh_token' => 'refresh', 'access_token_expires_in' => 100, 'refresh_token_expires_in' => 1000, 'authorizer_info' => ['account_id' => 123, 'account_role_type' => 'ACCOUNT_ROLE_TYPE_ADVERTISER']]);
+        $token = $tx->authAccessToken('code');
+        check($token['user_id'] === 'tx_456_123' && $token['account_id'] === '123', '授权身份应来自实际账户');
+        $tx->http->responses[] = ok(['access_token' => 'new', 'access_token_expires_in' => 100]);
+        $refresh = $tx->authRefreshToken('refresh');
+        check(!array_key_exists('refresh_token', $refresh) && !array_key_exists('refresh_time', $refresh), '刷新不能清空或延期旧刷新令牌');
+    };
+    $tests['拒绝代理账号与跨账户查询'] = function () {
+        $tx = (new TestTx())->setApp('456', 'secret')->setToken('test')->setAppInfo(['auth_url' => 'https://developers.e.qq.com/oauth/authorize?redirect_uri=https%3A%2F%2Fexample.com%2Fuc%2Fmkt%2Ftencent']);
+        $tx->http->responses[] = ok(['refresh_token' => 'refresh', 'authorizer_info' => ['account_id' => 123, 'account_role_type' => 'ACCOUNT_ROLE_TYPE_AGENCY']]);
+        rejects(function () use ($tx) { $tx->authAccessToken('code'); }, '应拒绝代理商');
+        $tx->http->responses[] = ok(['list' => [['account_id' => 999, 'corporation_name' => '其他账户']]]);
+        rejects(function () use ($tx) { $tx->advertiserGet('123'); }, '不得同步非授权直客');
+    };
+    $tests['投放设置保持只读'] = function () {
+        $tx = new TestTx();
+        rejects(function () use ($tx) { $tx->planUpdate('1', '2', ['schedule_time' => '']); }, '不允许修改时段');
+        rejects(function () use ($tx) { $tx->planUpdateStatus('1', '2', 'enable'); }, '不允许启停');
+        rejects(function () use ($tx) { $tx->planUpdateBudget('1', '2', 100); }, '不允许改预算');
+        check(!$tx->http->requests, '只读限制必须在发送网络请求前生效');
+    };
+    $tests['OAuth state 过期与重放'] = function () {
+        \App\Utils\RedisManager::$redis = new class {
+            public $data = [];
+            public function setex($key, $ttl, $value) { check($ttl === 600, 'state 期限错误'); $this->data[$key] = $value; }
+            public function eval($script, $keys, $num) { $value = $this->data[$keys[0]] ?? null; unset($this->data[$keys[0]]); return $value; }
+        };
+        \App\Model\Mkt\MktApp::$apps['456'] = new class {
+            public $platform = 'tx';
+            public function toArray() { return ['auth_url' => 'https://developers.e.qq.com/oauth/authorize?redirect_uri=https%3A%2F%2Fexample.com%2Fuc%2Fmkt%2Ftencent']; }
+        };
+        $service = new \App\Service\Mkt\TencentAuthService();
+        parse_str(parse_url($service->authorize('456'), PHP_URL_QUERY), $query);
+        check(strlen($query['state']) === 64 && $query['client_id'] === '456', '授权 URL 错误');
+        $service->callback($query['state'], 'code');
+        rejects(function () use ($service, $query) { $service->callback($query['state'], 'code'); }, 'state 不可重放');
+        rejects(function () use ($service) { $service->callback(str_repeat('f', 64), 'code'); }, '过期 state 必须拒绝');
+        check(\App\Service\Mkt\MktService::$calls === [['456', 'code']], 'state 校验失败时不得分发授权');
+    };
+    $click = ['advertiser_id' => '123', 'adgroup_id' => '9', 'creative_id' => '7', 'click_id' => 'click-1', 'click_time' => (string)(time() - 60), 'oaid' => 'OAID-original', 'muid' => md5('123456789012345'), 'android_id' => md5('android')];
+    $tests['点击协议与哈希不重复计算'] = function () use ($click) {
+        $data = \App\Services\Mkt\TencentClick::normalize($click);
+        check($data['imei'] === $click['muid'] && $data['oaid'] === $click['oaid'] && $data['aid'] === '9', '点击字段或 MD5 转换错误');
+        $millis = $click; $millis['click_time'] = $click['click_time'] . '000';
+        check(\App\Services\Mkt\TencentClick::normalize($millis)['ts'] === $data['ts'], '点击毫秒转秒错误');
+        $invalid = $click; unset($invalid['click_time']);
+        rejects(function () use ($invalid) { \App\Services\Mkt\TencentClick::normalize($invalid); }, '不应以当前时间补造点击');
+        $invalid = $click; $invalid['advertiser_id'] = ['123'];
+        rejects(function () use ($invalid) { \App\Services\Mkt\TencentClick::normalize($invalid); }, '应拒绝数组参数');
+    };
+    $tests['激活留存和关键行为回传幂等'] = function () use ($click) {
+        $params = \App\Services\Mkt\TencentClick::normalize($click); $params['app_code'] = 'demo';
+        $extra = ['user_action_set_id' => '456', 'key_action_type' => 'CUSTOM', 'custom_action' => 'key_action'];
+        $service = new \App\Services\Mkt\TencentService();
+        $time = time() - 10;
+        $active = $service->payload('activate', $time, $params, $extra);
+        check($active === $service->payload('activate', $time, $params, $extra), '重试必须保持幂等标识');
+        check($active['actions'][0]['user_id']['hash_oaid'] === md5($click['oaid']), 'OAID 哈希错误');
+        check($active['actions'][0]['user_id']['hash_imei'] === $click['muid'], 'IMEI 被重复 MD5');
+        $keep = $service->payload('keep1', $time, $params, $extra);
+        check($keep['actions'][0]['action_type'] === 'START_APP' && $keep['actions'][0]['outer_action_id'] !== $active['actions'][0]['outer_action_id'], '留存与激活应使用不同事件标识');
+        $key = $service->payload('key_action', $time, $params, $extra);
+        check($key['actions'][0]['custom_action'] === 'key_action' && $key['actions'][0]['trace']['click_id'] === 'click-1', '关键行为配置或点击追踪错误');
+        rejects(function () use ($service, $time, $params) { $service->payload('key_action', $time, $params, ['user_action_set_id' => 456]); }, '不得猜测关键行为');
+        rejects(function () use ($service, $time, $params) { $service->payload('activate', $time, $params, []); }, '不得缺失行为源');
+    };
+    $tests['平台来源与荣耀隔离'] = function () {
+        check(\App\Constants\AdConst::PUT_SOURCE_MAP['tx'] === 8 && \App\Constants\AdConst::PUT_SOURCE_MAP['honor'] === 7, '平台来源冲突');
+        check(\App\Constants\MktConst::PLATFORM_SOURCE['tx'] === 8, '两端来源未对齐');
+    };
+    foreach ($tests as $name => $test) {
+        $test();
+        echo '通过：' . $name . PHP_EOL;
+    }
+    echo '共通过 ' . count($tests) . ' 组隔离测试。' . PHP_EOL;
+}

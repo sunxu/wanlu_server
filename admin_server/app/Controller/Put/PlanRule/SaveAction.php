@@ -9,6 +9,9 @@ namespace App\Controller\Put\PlanRule;
 
 use App\Controller\AbstractAction;
 use App\Model\Mkt\MktPlanRule;
+use App\Model\Mkt\MktAdvertiser;
+use App\Model\Mkt\MktPlan;
+use App\Constants\MktConst;
 use App\Utils\ValidateTrait;
 use Hyperf\DbConnection\Db;
 
@@ -39,6 +42,14 @@ class SaveAction extends AbstractAction
     {
         $params = $this->validated($this->request->all());
 
+        if (MktAdvertiser::query()->where('advertiser_id', $params['advertiser_id'])->where('platform', MktConst::PLATFORM_TX)->exists()) {
+            return $this->responseError(-1, '腾讯营销不支持自动规则');
+        }
+        if (MktPlan::query()->whereIn('plan_id', $params['plan_ids'])->whereHas('advertiser', function ($query) {
+            $query->where('platform', MktConst::PLATFORM_TX);
+        })->exists()) {
+            return $this->responseError(-1, '腾讯营销不支持自动规则');
+        }
         $confirm = $params['confirm'] ?? 0;
         $list = MktPlanRule::query()
             ->where('advertiser_id', $params['advertiser_id'])

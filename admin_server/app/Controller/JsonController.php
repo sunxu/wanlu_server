@@ -26,8 +26,12 @@ class JsonController extends AbstractController
     {
         $params = $this->request->all();
 
-        var_dump(Db::enableQueryLog());
         $total = Db::table("ad_performance")
+            ->when($platform = data_get($params, 'platform'), function ($query) use ($platform) {
+                $query->whereIn('广告主ID', function ($advertisers) use ($platform) {
+                    $advertisers->select('advertiser_id')->from('mkt_advertiser')->where('platform', $platform);
+                });
+            })
             ->when($appCode = data_get($params, 'app_code'), function ($query) use ($appCode) {
                 $query->where('app_code', $appCode);
             })
@@ -48,7 +52,6 @@ class JsonController extends AbstractController
             ->orderBy('id', 'desc')
             ->limit(24 * 32)
             ->get();
-        var_dump(Db::getQueryLog());
 
         $currentPage = data_get($params, 'page', 1);
         $perPage = data_get($params, 'per_page', 10);
@@ -71,8 +74,12 @@ class JsonController extends AbstractController
     {
         $params = $this->request->all();
 
-        var_dump(Db::enableQueryLog());
         $total = Db::table("report_advertiser")
+            ->when($platform = data_get($params, 'platform'), function ($query) use ($platform) {
+                $query->whereIn('广告主ID', function ($advertisers) use ($platform) {
+                    $advertisers->select('advertiser_id')->from('mkt_advertiser')->where('platform', $platform);
+                });
+            })
             ->when($appCode = data_get($params, 'app_code'), function ($query) use ($appCode) {
                 $query->where('app_code', $appCode);
             })
@@ -91,7 +98,6 @@ class JsonController extends AbstractController
             ->orderBy('id', 'desc')
             ->limit(5000)
             ->get();
-        var_dump(Db::getQueryLog());
 
         $currentPage = data_get($params, 'page', 1);
         $perPage = data_get($params, 'per_page', 10);

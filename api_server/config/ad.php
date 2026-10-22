@@ -5,6 +5,12 @@
 return [
     'test_app' => ['zdjz', 'yfmgj'],// 临时验证新统计回收的应用
     'source' => [
+        // 腾讯在点击监测工具中配置 Feedback URL 后自动附加参数，无需伪造宏。
+        'tencent' => [
+            'name' => '腾讯营销',
+            'new_url' => 'https://api.lshx.cc/v1/ad/tx/%s/',
+            'click_param' => [],
+        ],
         // 巨量
         'juliang' => [
             'name' => '巨量',

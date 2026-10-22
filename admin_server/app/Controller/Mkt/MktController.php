@@ -10,6 +10,7 @@ use App\Request\Mkt\Auth\CallbackHwRequest;
 use App\Request\Mkt\Auth\CallbackRequest;
 use App\Request\Mkt\Auth\CallbackViRequest;
 use App\Service\Mkt\MktService;
+use App\Service\Mkt\TencentAuthService;
 use App\Utils\Log;
 use Exception;
 use Hyperf\DbConnection\Db;
@@ -18,6 +19,39 @@ use Psr\Http\Message\ResponseInterface;
 
 class MktController extends AbstractController
 {
+    public function tencentApplications()
+    {
+        return $this->responseRecord(make(TencentAuthService::class)->applications());
+    }
+
+    public function tencentAuthorize()
+    {
+        $appId = $this->request->input('app_id');
+        if (!is_scalar($appId) || !ctype_digit((string)$appId)) {
+            return $this->responseError(-1, '请选择腾讯开放平台应用');
+        }
+        try {
+            return $this->responseSuccess(['url' => make(TencentAuthService::class)->authorize((string)$appId)]);
+        } catch (Exception $e) {
+            return $this->responseError(-1, $e->getMessage());
+        }
+    }
+
+    public function tencent()
+    {
+        $state = $this->request->input('state');
+        $code = $this->request->input('authorization_code');
+        if (!is_string($state) || !is_string($code)) {
+            return $this->responseError(-1, '腾讯授权回调参数无效');
+        }
+        try {
+            make(TencentAuthService::class)->callback($state, $code);
+            return $this->responseSuccess(['message' => '腾讯营销授权成功，请返回广告主管理页面刷新']);
+        } catch (Exception $e) {
+            return $this->responseError(-1, $e->getMessage());
+        }
+    }
+
     /**
      * 授权回调
      * @param CallbackRequest $request

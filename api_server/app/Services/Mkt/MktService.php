@@ -60,6 +60,18 @@ class MktService
      * @return bool
      * @throws Exception
      */
+    protected function tx(string $eventType, int $eventTime, array $params)
+    {
+        try {
+            return (new TencentService())->callback($eventType, $eventTime, $params);
+        } catch (Exception $e) {
+            Log::warning('腾讯行为回传失败', [
+                'account_id' => $params['account_id'] ?? '', 'event' => $eventType, 'message' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
     protected function jl(string $eventType, int $eventTime, array $params)
     {
         if (!filter_var($params['callback_url'] ?? '', FILTER_VALIDATE_URL)) {

@@ -109,17 +109,20 @@ class AppConst
     const SOURCE_HW = 'hw';//华为
     const SOURCE_OP = 'op';//OPPO
     const SOURCE_VI = 'vi';//vivo
+    const SOURCE_TX = 'tx';//腾讯营销
     const SOURCE_NAME_MAP = [
         self::SOURCE_JL => '巨量',
         self::SOURCE_KS => '快手',
         self::SOURCE_HW => '华为',
         self::SOURCE_OP => 'OPPO',
         self::SOURCE_VI => 'vivo',
+        self::SOURCE_TX => '腾讯营销',
         self::SOURCE_LY => '联运',
     ];
     const SOURCE_OLD_MAP = [//老数据兼容
         self::SOURCE_JL => 1,
         self::SOURCE_KS => 2,
+        self::SOURCE_TX => 8,
     ];
 
     /*投放方式*/

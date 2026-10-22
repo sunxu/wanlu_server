@@ -5,6 +5,12 @@ declare(strict_types=1);
 return [
     'base_url' => 'https://{domain}',
     'source' => [
+        // 腾讯在点击监测工具中配置 Feedback URL 后自动附加参数，无需伪造宏。
+        [
+            'name' => '腾讯营销',
+            'path' => '/v1/ad/tx/%s/',
+            'params' => [],
+        ],
         [
             'name' => '巨量',
             'path' => '/v1/ad/jl/%s/?%s',

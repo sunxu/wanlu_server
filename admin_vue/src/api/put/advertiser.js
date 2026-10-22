@@ -1,5 +1,13 @@
 import request from '@/utils/request'
 
+export function tencentApplications() {
+  return request({ url: '/uc/v1/mkt/tx/applications', method: 'get' })
+}
+
+export function tencentAuthorize(appId) {
+  return request({ url: '/uc/v1/mkt/tx/authorize', method: 'post', data: { app_id: appId } })
+}
+
 export function getList(body) {
   return request({
     url: '/uc/v1/put/advertiser/list',

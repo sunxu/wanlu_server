@@ -192,7 +192,7 @@ export default {
                 advertise:undefined,
                 plat: undefined
             },
-            platOption: [{ 'id': '', 'name': '全部' }, { 'id': 1, 'name': '巨量' }, { 'id': 2, 'name': '快手' }],
+            platOption: [{ 'id': '', 'name': '全部' }, { 'id': 1, 'name': '巨量' }, { 'id': 2, 'name': '快手' }, { 'id': 8, 'name': '腾讯营销' }],
             advertiserOption: undefined,
             launch_typeOption: [{ 'id': '', 'name': '全部' }, { 'id': 1, 'name': '关键行为' }, { 'id': 2, 'name': '双出' }],
             statusOption: [{ 'id': '', 'name': '全部' }, { 'id': 1, 'name': '已标记' }, { 'id': 2, 'name': '未标记' }],

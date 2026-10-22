@@ -7,6 +7,7 @@ namespace App\Http\Controllers\V1;
 
 use App\Constants\AdConst;
 use App\Services\Common\App;
+use App\Services\Mkt\TencentClick;
 use App\Services\Helper\Tools\Dding;
 use DB;
 use Illuminate\Http\Request;
@@ -15,6 +16,30 @@ use Schema;
 
 class AdController extends Controller
 {
+    public function tx(Request $request, $appCode)
+    {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/D', $appCode) || !App::getAppByCode($appCode)) {
+            return response()->json(['ret' => 1, 'msg' => '应用不存在'], 400);
+        }
+        try {
+            $data = TencentClick::normalize($request->input());
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['ret' => 1, 'msg' => $e->getMessage()], 400);
+        }
+        $account = DB::connection('uc')->table('mkt_advertiser')->where('advertiser_id', $data['account_id'])->first();
+        if (($account['platform'] ?? '') !== AdConst::PUT_SOURCE_TX || ($account['app_code'] ?? '') !== $appCode || empty($account['status'])) {
+            return response()->json(['ret' => 1, 'msg' => '腾讯广告主未绑定该应用或已停用'], 400);
+        }
+        $table = App::tableAdTencent($appCode);
+        if ($this->errorLog($appCode, $table, $request->input())) {
+            return response()->json(['ret' => 1, 'msg' => '请先初始化腾讯点击表'], 503);
+        }
+        if (!DB::table($table)->where('account_id', $data['account_id'])->where('click_id', $data['click_id'])->exists()) {
+            DB::table($table)->insert($data);
+        }
+        return response()->json(['ret' => 0, 'msg' => 'OK']);
+    }
+
     public function jl(Request $request, $appCode)
     {
         // 请求参数

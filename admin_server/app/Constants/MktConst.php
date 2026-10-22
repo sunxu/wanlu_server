@@ -10,6 +10,7 @@ use App\Library\Mkt\MktJl;
 use App\Library\Mkt\MktKs;
 use App\Library\Mkt\MktOp;
 use App\Library\Mkt\MktVi;
+use App\Library\Mkt\MktTx;
 
 class MktConst
 {
@@ -22,7 +23,8 @@ class MktConst
     public const PLATFORM_HW = 'hw';// 华为
     public const PLATFORM_OP = 'op';// OPPO
     public const PLATFORM_VI = 'vi';// VIVO
-    public const PLATFORM_BD = 'bd';// VIVO
+    public const PLATFORM_BD = 'bd';// 百度
+    public const PLATFORM_TX = 'tx';// 腾讯营销
 
     public const PLATFORM = [
         self::PLATFORM_JL => '巨量',
@@ -31,6 +33,7 @@ class MktConst
         self::PLATFORM_OP => 'OPPO',
         self::PLATFORM_VI => 'vivo',
         self::PLATFORM_BD => '百度',
+        self::PLATFORM_TX => '腾讯营销',
     ];
 
     public const PLATFORM_SOURCE = [
@@ -40,6 +43,7 @@ class MktConst
         self::PLATFORM_HW => 4,
         self::PLATFORM_VI => 5,
         self::PLATFORM_BD => 6,
+        self::PLATFORM_TX => 8,
     ];
 
     // 投放服务
@@ -50,6 +54,7 @@ class MktConst
         self::PLATFORM_OP => MktOp::class,
         self::PLATFORM_VI => MktVi::class,
         self::PLATFORM_BD => MktBd::class,
+        self::PLATFORM_TX => MktTx::class,
     ];
 
     // 百度投放拼接字符标识

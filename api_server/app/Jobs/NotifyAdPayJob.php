@@ -33,6 +33,10 @@ class NotifyAdPayJob extends BaseJob
             ->where('android_id', $tradeInfo['account'])
             ->first();
 
+        if ((int)$deviceInfo['source'] === \App\Constants\AdConst::PUT_SOURCE_MAP[\App\Constants\AdConst::PUT_SOURCE_TX]) {
+            return; // 首期腾讯仅接入激活、留存和关键行为回传。
+        }
+
         DB::table($tableDevice)
             ->where('id', $deviceInfo['id'])
             ->update([

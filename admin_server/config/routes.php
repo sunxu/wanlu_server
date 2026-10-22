@@ -74,6 +74,8 @@ Router::addGroup('/uc', function () {
         Router::put('/self/password', [UserController::class, 'editSelfPassword']);
 
         Router::addGroup('/mkt', function () {
+            Router::get('/tx/applications', [App\Controller\Mkt\MktController::class, 'tencentApplications']);
+            Router::post('/tx/authorize', [App\Controller\Mkt\MktController::class, 'tencentAuthorize']);
             Router::get('/{appCode}/advertiser/project/ad', [CommonController::class, 'getAdvertiserProjectAd']);
             Router::get('/{appCode}/advertiser/project', [CommonController::class, 'getAdvertiserProject']);
             Router::get('/{appCode}/advertiser/plan', [CommonController::class, 'getAdvertiserWithPlan']);
@@ -377,6 +379,7 @@ Router::addGroup('/uc', function () {
     Router::get('/mkt/huawei', [App\Controller\Mkt\MktController::class, 'huawei']);
     Router::get('/mkt/vivo', [App\Controller\Mkt\MktController::class, 'vivo']);
     Router::get('/mkt/baidu', [App\Controller\Mkt\MktController::class, 'baidu']);
+    Router::get('/mkt/tencent', [App\Controller\Mkt\MktController::class, 'tencent']);
 
     Router::get('/mkt/income/{token}', [App\Controller\Mkt\MktController::class, 'income']);
 });

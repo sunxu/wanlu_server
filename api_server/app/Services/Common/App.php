@@ -382,6 +382,9 @@ class App
             case 6:
                 $tableAd = self::tableAdBd($appcode);
                 break;
+            case 8:
+                $tableAd = self::tableAdTencent($appcode);
+                break;
             case 7:
                 $tableAd = self::tableAdHonor($appcode);
                 break;
@@ -394,10 +397,15 @@ class App
     }
 
     /**
-     * 巨量推广表
+     * 腾讯营销推广表
      * @param string $appcode
      * @return string
      */
+    public static function tableAdTencent(string $appcode): string
+    {
+        return sprintf('app_%s_tx', $appcode);
+    }
+
     public static function tableAdJuliang(string $appcode): string
     {
         return sprintf('app_%s_ad', $appcode);

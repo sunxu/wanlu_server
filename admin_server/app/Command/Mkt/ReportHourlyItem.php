@@ -82,7 +82,7 @@ class ReportHourlyItem extends HyperfCommand
 
         $list = $model
             ->whereIn($this->appCode, array_keys($this->getAppList()))
-            ->whereIn('platform', [MktConst::PLATFORM_JL, MktConst::PLATFORM_BD, MktConst::PLATFORM_KS])
+            ->whereIn('platform', [MktConst::PLATFORM_JL, MktConst::PLATFORM_BD, MktConst::PLATFORM_KS, MktConst::PLATFORM_TX])
             ->pluck($this->key)
             ->toArray();
 

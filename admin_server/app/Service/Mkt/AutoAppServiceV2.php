@@ -98,7 +98,7 @@ class AutoAppServiceV2
 
     public function schedulePlan()
     {
-        $appCodes = ReportDailyAdvertiser::where('date', date('Y-m-d'))->pluck('app_code')->toArray();
+        $appCodes = ReportDailyAdvertiser::where('date', date('Y-m-d'))->where('platform', '!=', MktConst::PLATFORM_TX)->pluck('app_code')->toArray();
         $plans = MktAutoAppV2::where('plan_enable', 1)
             ->get()
             ->toArray();

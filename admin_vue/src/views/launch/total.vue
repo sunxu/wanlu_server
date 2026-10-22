@@ -132,7 +132,7 @@ export default {
         app_code: undefined,
         date_begin: undefined,
         date_end: undefined,
-        source: undefined,
+        platform: undefined,
         launch_type: undefined,
         // sort_column: undefined,
         // sort_type: undefined

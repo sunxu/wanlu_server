@@ -52,6 +52,8 @@ class AdConst
      */
     public const PUT_SOURCE_LY = 'ly';
 
+    public const PUT_SOURCE_TX = 'tx';// 腾讯营销
+
     // 渠道对应标识
     public const PUT_SOURCE_MAP = [
         self::PUT_SOURCE_JL => 1,
@@ -61,6 +63,7 @@ class AdConst
         self::PUT_SOURCE_VI => 5,
         self::PUT_SOURCE_BD => 6,
         self::PUT_SOURCE_HONOR => 7,
+        self::PUT_SOURCE_TX => 8,
     ];
 
     // 投放检测链接项目、广告连接符号

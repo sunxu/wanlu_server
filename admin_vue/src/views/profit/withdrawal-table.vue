@@ -108,7 +108,8 @@ export default {
       },
       sources: [
         { code: 'ks', name: '快手' },
-        { code: 'jl', name: '巨量' }
+        { code: 'jl', name: '巨量' },
+        { code: 'tx', name: '腾讯营销' }
       ],
       launch_types: [
         { code: '0', name: '双出' },

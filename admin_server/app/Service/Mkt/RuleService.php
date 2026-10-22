@@ -84,7 +84,7 @@ class RuleService
      */
     protected function checkRule(array $ruleInfo)
     {
-        $list = ReportDailyPlan::query()
+        $list = ReportDailyPlan::query()->where('platform', '!=', MktConst::PLATFORM_TX)
             ->where('date', $this->nowDate)
             ->whereIn('plan_id', $ruleInfo['plan_ids'])
             ->get();
