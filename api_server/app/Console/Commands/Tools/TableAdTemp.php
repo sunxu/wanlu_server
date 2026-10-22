@@ -36,6 +36,7 @@ class TableAdTemp extends Command
         'app_%s_huawei' => 'ts',
         'app_%s_vivo' => 'ts',
         'app_%s_tx' => 'ts',
+        'app_%s_honor' => 'ts',
     ];
 
     /**

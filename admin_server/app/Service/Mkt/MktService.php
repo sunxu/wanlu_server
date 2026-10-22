@@ -325,7 +325,7 @@ class MktService
         if (!$model) {
             throw new Exception('invalid advertiserId:' . $advertiserId);
         }
-        if ($model->platform == MktConst::PLATFORM_JL) {
+        if (in_array($model->platform, [MktConst::PLATFORM_JL, MktConst::PLATFORM_HONOR], true)) {
             return;
         }
 
@@ -372,7 +372,7 @@ class MktService
         if (!$model) {
             throw new Exception('invalid advertiserId:' . $advertiserId);
         }
-        if ($model->platform != MktConst::PLATFORM_JL) {
+        if (!in_array($model->platform, [MktConst::PLATFORM_JL, MktConst::PLATFORM_HONOR], true)) {
             return;
         }
 
@@ -414,7 +414,7 @@ class MktService
         if (!$model) {
             throw new Exception('invalid advertiserId:' . $advertiserId);
         }
-        if ($model->platform != MktConst::PLATFORM_JL) {
+        if (!in_array($model->platform, [MktConst::PLATFORM_JL, MktConst::PLATFORM_HONOR], true)) {
             return;
         }
 
@@ -459,6 +459,10 @@ class MktService
 
         if (!$model) {
             throw new Exception('invalid adId:' . $adId);
+        }
+
+        if ($model->advertiser->platform === MktConst::PLATFORM_HONOR) {
+            throw new Exception('荣耀未开放单广告启停及自动规则');
         }
 
         $mkt = $this->getMkt($model->advertiser->platform);
@@ -660,6 +664,7 @@ class MktService
             $data['app_code'] = $model->app_code;
             $data['platform'] = $model->platform;
 
+            $this->assertHonorReportOwner($report, $model);
             $report->fill($data)->save();
         }
     }
@@ -690,6 +695,8 @@ class MktService
 
         if ($model->platform == MktConst::PLATFORM_JL) {
             $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly', (string)$model->advertiser_name);
+        } elseif ($model->platform === MktConst::PLATFORM_HONOR) {
+            $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly');
         } else {
             $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly', $model->advertiser->extra['search'] ?? false);
         }
@@ -708,11 +715,13 @@ class MktService
         $data = [
             'hour_info' => $hourInfo
         ];
+        $advertiser = $model;
         $model = ReportDailyAdvertiser::query()
             ->where('date', $date)
             ->where('advertiser_id', $list[0]['advertiser_id'] ?? 0)
             ->first();
         if ($model) {
+            $this->assertHonorReportOwner($model, $advertiser);
             $model->fill($data)->save();
         }
     }
@@ -730,7 +739,7 @@ class MktService
         if (!$model) {
             throw new Exception('invalid advertiserId:' . $advertiserId);
         }
-        if ($model->platform != MktConst::PLATFORM_JL) {
+        if (!in_array($model->platform, [MktConst::PLATFORM_JL, MktConst::PLATFORM_HONOR], true)) {
             return;
         }
 
@@ -758,6 +767,7 @@ class MktService
                     continue;
                 }
 
+                $this->assertHonorEntityOwner(MktProject::find($value['project_id']), $advertiserId);
                 $value['app_code'] = $model->app_code;
                 $value['platform'] = $model->platform;
 
@@ -770,6 +780,7 @@ class MktService
                     $report = new ReportDailyProject();
                 }
 
+                $this->assertHonorReportOwner($report, $model);
                 $report->fill($value)->save();
             }
         }
@@ -788,7 +799,7 @@ class MktService
         if (!$model) {
             throw new Exception('invalid advertiserId:' . $advertiserId);
         }
-        if ($model->platform != MktConst::PLATFORM_JL) {
+        if (!in_array($model->platform, [MktConst::PLATFORM_JL, MktConst::PLATFORM_HONOR], true)) {
             return;
         }
 
@@ -816,6 +827,8 @@ class MktService
                     continue;
                 }
 
+                $this->assertHonorEntityOwner(MktProject::find($value['project_id']), $advertiserId);
+                $this->assertHonorEntityOwner(MktAd::find($value['ad_id']), $advertiserId);
                 $value['app_code'] = $model->app_code;
                 $value['platform'] = $model->platform;
 
@@ -828,6 +841,7 @@ class MktService
                     $report = new ReportDailyAd();
                 }
 
+                $this->assertHonorReportOwner($report, $model);
                 $report->fill($value)->save();
             }
         }
@@ -846,7 +860,7 @@ class MktService
         if (!$model) {
             throw new Exception('invalid advertiserId:' . $advertiserId);
         }
-        if ($model->platform == MktConst::PLATFORM_JL) {
+        if (in_array($model->platform, [MktConst::PLATFORM_JL, MktConst::PLATFORM_HONOR], true)) {
             return;
         }
 
@@ -920,7 +934,7 @@ class MktService
         if (!$model) {
             throw new Exception('invalid advertiserId:' . $advertiserId);
         }
-        if ($model->platform == MktConst::PLATFORM_JL) {
+        if (in_array($model->platform, [MktConst::PLATFORM_JL, MktConst::PLATFORM_HONOR], true)) {
             return;
         }
 
@@ -1109,6 +1123,11 @@ class MktService
     protected function saveAdvertiser(array $data)
     {
         $model = MktAdvertiser::find($data['advertiser_id']);
+        if ($model && in_array(MktConst::PLATFORM_HONOR, [$model->platform, $data['platform']], true)) {
+            if ($model->platform !== $data['platform'] || (string)$model->account_id !== (string)$data['account_id']) {
+                throw new Exception('荣耀广告主ID与已有平台或账户绑定冲突，拒绝覆盖');
+            }
+        }
         if ($model && $model->platform !== $data['platform'] && in_array(MktConst::PLATFORM_TX, [$model->platform, $data['platform']], true)) {
             throw new Exception('广告主ID与其他投放平台冲突，拒绝覆盖');
         }
@@ -1176,6 +1195,7 @@ class MktService
     protected function saveProject(array $data)
     {
         $model = MktProject::find($data['project_id']);
+        $this->assertHonorEntityOwner($model, $data['advertiser_id']);
 
         if (!$model) {
             $model = new MktProject();
@@ -1192,12 +1212,35 @@ class MktService
     protected function saveAd(array $data)
     {
         $model = MktAd::find($data['ad_id']);
+        $this->assertHonorEntityOwner($model, $data['advertiser_id']);
+        $project = MktProject::find($data['project_id']);
+        $this->assertHonorEntityOwner($project, $data['advertiser_id']);
 
         if (!$model) {
             $model = new MktAd();
         }
 
         return $model->fill($data)->save();
+    }
+
+
+    /** 全局ID主键下，仅对涉及荣耀的数据新增双向归属校验。 */
+    protected function assertHonorEntityOwner($existing, string $advertiserId)
+    {
+        if (!$existing || (string)$existing->advertiser_id === $advertiserId) { return; }
+        $old = MktAdvertiser::find($existing->advertiser_id);
+        $incoming = MktAdvertiser::find($advertiserId);
+        if (($old && $old->platform === MktConst::PLATFORM_HONOR) || ($incoming && $incoming->platform === MktConst::PLATFORM_HONOR)) {
+            throw new Exception('荣耀项目／广告ID与已有广告主数据冲突，拒绝覆盖');
+        }
+    }
+
+    protected function assertHonorReportOwner($report, $advertiser)
+    {
+        if ($report && $report->exists && in_array(MktConst::PLATFORM_HONOR, [$report->platform, $advertiser->platform], true) &&
+            ($report->platform !== $advertiser->platform || (string)$report->advertiser_id !== (string)$advertiser->advertiser_id)) {
+            throw new Exception('荣耀报表与已有平台或广告主数据冲突，拒绝覆盖');
+        }
     }
 
 

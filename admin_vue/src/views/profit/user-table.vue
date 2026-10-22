@@ -224,6 +224,7 @@ export default {
       sources: [
         { code: 'ks', name: '快手' },
         { code: 'jl', name: '巨量' },
+        { code: 'honor', name: '荣耀' },
         { code: 'tx', name: '腾讯营销' }
       ],
       launch_types: [

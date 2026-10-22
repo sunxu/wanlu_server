@@ -271,21 +271,7 @@ return [
                 'date' => 'yesterday'
             ])->setMemo('mkt昨日报表-联运')
             ->setOnOneServer(true)->setSingleton(true),
-        // 投放-荣耀投放数据
-        (new Crontab())->setType('command')->setName('mkt:honor-yesterday')->setRule('10 2,8,10 * * *')
-            ->setCallback([
-                'command' => 'mkt:honor',
-                'date' => 'yesterday',
-                'code' => 'jxhznewnew'
-            ])->setMemo('mkt昨日报表-荣耀')
-            ->setOnOneServer(true)->setSingleton(true),
-        (new Crontab())->setType('command')->setName('mkt:honor-today')->setRule('*/10 * * * *')
-            ->setCallback([
-                'command' => 'mkt:honor',
-                'date' => 'today',
-                'code' => 'jxhznewnew'
-            ])->setMemo('mkt今日报表-荣耀')
-            ->setOnOneServer(true)->setSingleton(true),
+        // 荣耀已接入公共 OpenAPI 同步和报表任务，停用旧网页 Token 抓取任务。
         // 媒体-应用回收-代投
         (new Crontab())->setType('command')->setName('media:dailyLianyun')->setRule('40 9,10,11,14,16,20 * * *')
             ->setCallback([

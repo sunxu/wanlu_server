@@ -6,7 +6,8 @@ const SOURCE_MAP = {
   hw : '华为',
   vi : 'vivo',
   bd : '百度',
-  tx: '腾讯营销'
+  tx: '腾讯营销',
+  honor: '荣耀'
 }
 //投放方式
 const LAUNCH_TYPE_MAP = {
