@@ -626,7 +626,10 @@ class MktService
         }
 
         $mkt = $this->getMkt($model->platform);
-        $mkt->setToken($model->account->user->access_token)->setAppInfo($model->extra ?? []);
+        $mkt->setToken($model->account->user->access_token);
+        if ($model->platform === MktConst::PLATFORM_TX) {
+            $mkt->setAppInfo($model->extra ?? []);
+        }
         $this->oppo($mkt, $model);
 
         // 百度
@@ -676,7 +679,10 @@ class MktService
         }
 
         $mkt = $this->getMkt($model->platform);
-        $mkt->setToken($model->account->user->access_token)->setAppInfo($model->extra ?? []);
+        $mkt->setToken($model->account->user->access_token);
+        if ($model->platform === MktConst::PLATFORM_TX) {
+            $mkt->setAppInfo($model->extra ?? []);
+        }
         $this->oppo($mkt, $model);
 
         // 百度
@@ -685,7 +691,7 @@ class MktService
         if ($model->platform == MktConst::PLATFORM_JL) {
             $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly', (string)$model->advertiser_name);
         } else {
-            $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly', $model->extra['search'] ?? false);
+            $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly', $model->advertiser->extra['search'] ?? false);
         }
 
         if (empty($list) || array_sum(array_column($list, 'cost')) <= 0) {
@@ -845,7 +851,10 @@ class MktService
         }
 
         $mkt = $this->getMkt($model->platform);
-        $mkt->setToken($model->account->user->access_token)->setAppInfo($model->extra ?? []);
+        $mkt->setToken($model->account->user->access_token);
+        if ($model->platform === MktConst::PLATFORM_TX) {
+            $mkt->setAppInfo($model->extra ?? []);
+        }
         $this->oppo($mkt, $model);
 
         // 百度
