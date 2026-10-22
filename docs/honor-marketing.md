@@ -2,7 +2,7 @@
 
 ## 配置与令牌刷新
 
-沿用 `server-new` 的数据库配置和既有刷新流程。本次不创建授权关系、不新增命令、页面、HTTP 接口或数据库结构变更。
+沿用 `server-new` 的数据库配置和既有刷新流程，授权关系和令牌字段结构不变；存量应用缺失的荣耀点击表由下面的补表命令生成。
 
 现有配置需要保持以下关联：`mkt_user.app_id → mkt_app.app_id`、`mkt_account.user_id → mkt_user.user_id`、`mkt_advertiser.account_id → mkt_account.account_id`。`mkt_app` 配置荣耀客户端ID、密钥及 `platform=honor`；用户ID和账户绑定沿用环境已有值，不强制用户ID等于客户端ID，也不新增凭证与广告主的一对一约定。
 
@@ -38,7 +38,22 @@ php bin/hyperf.php mkt:reportDailyItem ad today 应用代码 荣耀广告主ID
 
 ## 点击与数据保留
 
-沿用现有 `/v1/ad/honor/{appCode}/` 点击接收、归因和事件回传协议。点击表使用环境已有的 `app_{应用代码}_honor`，不自动建表。表复制沿用现有新建应用流程；荣耀表加入参考工程已有的点击清理和归档周期。
+沿用现有 `/v1/ad/honor/{appCode}/` 点击接收、归因和事件回传协议。点击请求不自动建表，存量实际应用可在配置好当前环境数据库连接的 `api_server` 目录执行：
+
+```sh
+# 预览：校验并输出待建表SQL
+php artisan mkt:honor-tables --all --dry-run
+# 正式补齐缺失表
+php artisan mkt:honor-tables --all
+# 也可只处理指定应用，不能与 --all 同时使用
+php artisan mkt:honor-tables 应用代码1 应用代码2
+```
+
+应用列表取当前环境 `uc.app`，全量模式包含停用和未绑定广告主的实际应用，跳过 `default`。命令直接创建缺失的 `app_{应用代码}_honor`，包含当前点击表公共字段、荣耀 `request_id`／`track_id`、事件回传状态和匹配索引，不依赖任何模板表。已有表直接跳过，不修改其结构或数据；不创建默认荣耀模板，不修改令牌字段，不处理授权关系。
+
+全部应用标识先校验，预检失败不执行DDL。执行中某张表失败会记录错误、继续处理其他目标并返回非零状态；可重复执行补齐失败表。补表只创建空表，不补造历史点击。真实数据库执行需具备创建表权限，隔离测试不代替数据库联调。
+
+新建应用的表复制沿用现有流程，来源应用缺少荣耀表时可对新应用再次执行补表命令。荣耀表沿用现有点击清理和归档周期。
 
 荣耀监测参数不含项目／广告组ID，不补造项目、广告层级的归因收益。旧网页抓取定时任务按参考工程停用，旧命令和服务保持原有行为。
 
@@ -48,6 +63,7 @@ php bin/hyperf.php mkt:reportDailyItem ad today 应用代码 荣耀广告主ID
 php tests/honor_marketing_test.php
 php tests/honor_persistence_test.php
 php tests/honor_tables_test.php
+php tests/honor_click_tables_test.php
 php tests/tencent_marketing_test.php
 php tests/tencent_persistence_test.php
 php tests/tencent_attribution_test.php

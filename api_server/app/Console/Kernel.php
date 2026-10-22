@@ -24,6 +24,7 @@ class Kernel extends ConsoleKernel
         Commands\Tools\TableAdTemp::class,
         Commands\Tools\TableMarket::class,
         Commands\Tools\TencentClickTables::class,
+        Commands\Tools\HonorClickTables::class,
         Commands\Tools\TableSplit::class,
         Commands\Tools\PlacementEcpm::class,//更新广告位价格
         Commands\Tools\RefreshApp::class,
