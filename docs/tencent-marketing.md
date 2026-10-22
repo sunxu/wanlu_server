@@ -30,20 +30,32 @@ https://developers.e.qq.com/oauth/authorize?client_id=开发者应用ID&redirect
 
 ## 点击分表与监测地址
 
-仅初始化已绑定并启用腾讯广告主的应用：
+新建 App 沿用巨量、快手已有的模板复制机制：后台使用 `default`，`create-app` 和 `create-app-new` 使用指定的来源应用。创建入口不增加腾讯专用判断，也不在运行时从其他平台补表。
+
+上线时在配置好生产环境数据库连接的 `api_server` 目录执行全量脚本：
 
 ```sh
 cd api_server
+# 预览：只校验并输出 SQL，不建表
+php artisan mkt:tx-tables --all --dry-run
+# 正式执行：为全部注册 App 补齐腾讯点击表
+php artisan mkt:tx-tables --all
+```
+
+全量范围是当前环境 `uc.app` 中的所有应用，包含停用应用和 `default` 模板，不要求绑定腾讯广告主。在当前业务库创建 `app_{应用代码}_tx`；已存在的表直接跳过，不修改结构和数据。不会跨环境连接其他数据库。
+
+默认优先复制该应用已有的百度点击表；缺少完整模板时，依次选择 `app_default_bd` 或其他注册应用的完整百度点击表。所有模板都检查 `click_id`、设备匹配及回传状态字段，复制其现有结构和索引，不复制数据，不增加字段。预览会列出每张新表对应的源表。
+
+也可为本次操作统一指定现有模板，或只补指定 App：
+
+```sh
+php artisan mkt:tx-tables --all --template=已有点击表名
 php artisan mkt:tx-tables 应用代码
 ```
 
-默认复制该应用已有的 `app_{应用代码}_bd` 表结构。若没有该表，指定现有的包含 `click_id` 和完整回传状态字段的点击表：
+全部应用和模板先校验；任一校验失败，不执行建表。正式执行使用 `CREATE TABLE IF NOT EXISTS ... LIKE ...`，逐表输出结果和汇总。执行途中失败的表会记录错误并返回非零退出码，其他表继续处理；可重复执行补齐失败项，已有表不会重建。MySQL DDL 不作事务回滚。
 
-```sh
-php artisan mkt:tx-tables 应用代码 --template=已有点击表名
-```
-
-命令先校验所有应用与模板，再执行 `CREATE TABLE IF NOT EXISTS ... LIKE ...`，不复制数据、不添加字段，也不修改已有业务表。请求处理不会自动建表。腾讯点击表进入现有未归因点击清理和历史点击归档流程。
+全量补齐后，`default` 和其他来源应用也包含腾讯表，后续新建 App 继续通过原有遍历逻辑与巨量、快手一起复制，无需新增创建入口判断或单独初始化模板。点击请求不会自动建表。腾讯点击表进入现有未归因点击清理和历史点击归档流程。
 
 在腾讯点击监测工具中填写监测地址页面生成的 Feedback URL：
 
@@ -100,6 +112,7 @@ https://应用所属域名/v1/ad/tx/应用代码/
 php tests/tencent_marketing_test.php
 php tests/tencent_persistence_test.php
 php tests/tencent_attribution_test.php
+php tests/tencent_app_creation_test.php
 ```
 
 前端验证：
