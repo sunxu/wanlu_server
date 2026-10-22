@@ -332,33 +332,19 @@ class MktService
         $mkt = $this->getMkt($model->platform);
         $mkt->setToken($model->account->user->access_token);
 
-        if ($model->platform === MktConst::PLATFORM_TX) {
-            $mkt->setAppInfo($model->extra ?? []);
-        }
         $this->oppo($mkt, $model);
 
         // 百度
         $this->bd($model->platform, $advertiserId, $model->advertiser_name);
 
         $page = 1;
-        $cursor = '';
-        $seenCursors = [];
         $pageSize = $model->platform == MktConst::PLATFORM_HW ? 50 : 100;
         $totalPage = 1;
 
         while ($page <= $totalPage) {
 
             try {
-                $data = $model->platform === MktConst::PLATFORM_TX
-                    ? $mkt->planGet($advertiserId, $page, $pageSize, $planIds, false, $cursor)
-                    : $mkt->planGet($advertiserId, $page, $pageSize, $planIds, $model->extra['search'] ?? false);
-                if ($model->platform === MktConst::PLATFORM_TX && $data['page_info']['total_page'] > $page) {
-                    $cursor = $data['next_cursor'];
-                    if (isset($seenCursors[$cursor])) {
-                        throw new Exception('腾讯营销单元分页游标重复');
-                    }
-                    $seenCursors[$cursor] = true;
-                }
+                $data = $mkt->planGet($advertiserId, $page, $pageSize, $planIds, $model->extra['search'] ?? false);
             } catch (Exception $e) {
                 throw new Exception($e->getMessage());
             }
@@ -640,10 +626,7 @@ class MktService
         }
 
         $mkt = $this->getMkt($model->platform);
-        $mkt->setToken($model->account->user->access_token);
-        if ($model->platform === MktConst::PLATFORM_TX) {
-            $mkt->setAppInfo($model->extra ?? []);
-        }
+        $mkt->setToken($model->account->user->access_token)->setAppInfo($model->extra ?? []);
         $this->oppo($mkt, $model);
 
         // 百度
@@ -657,7 +640,7 @@ class MktService
 
         $data = $list[0] ?? [];
 
-        if (!empty($data) && ($data['cost'] > 0 || $model->platform === MktConst::PLATFORM_TX)) {
+        if (!empty($data) && $data['cost'] > 0) {
 
             $report = ReportDailyAdvertiser::query()
                 ->where('date', $data['date'])
@@ -693,10 +676,7 @@ class MktService
         }
 
         $mkt = $this->getMkt($model->platform);
-        $mkt->setToken($model->account->user->access_token);
-        if ($model->platform === MktConst::PLATFORM_TX) {
-            $mkt->setAppInfo($model->extra ?? []);
-        }
+        $mkt->setToken($model->account->user->access_token)->setAppInfo($model->extra ?? []);
         $this->oppo($mkt, $model);
 
         // 百度
@@ -708,7 +688,7 @@ class MktService
             $list = $mkt->reportAdvertiserGet($advertiserId, $date, 'hourly', $model->extra['search'] ?? false);
         }
 
-        if (empty($list) || (array_sum(array_column($list, 'cost')) <= 0 && $model->platform !== MktConst::PLATFORM_TX)) {
+        if (empty($list) || array_sum(array_column($list, 'cost')) <= 0) {
             return;
         }
 
@@ -865,10 +845,7 @@ class MktService
         }
 
         $mkt = $this->getMkt($model->platform);
-        $mkt->setToken($model->account->user->access_token);
-        if ($model->platform === MktConst::PLATFORM_TX) {
-            $mkt->setAppInfo($model->extra ?? []);
-        }
+        $mkt->setToken($model->account->user->access_token)->setAppInfo($model->extra ?? []);
         $this->oppo($mkt, $model);
 
         // 百度
@@ -896,7 +873,7 @@ class MktService
 
             foreach ($data['list'] ?? [] as $value) {
 
-                if ($value['cost'] <= 0 && $model->platform !== MktConst::PLATFORM_TX) {
+                if ($value['cost'] <= 0) {
                     continue;
                 }
 
@@ -961,7 +938,7 @@ class MktService
 
             foreach ($data['list'] ?? [] as $value) {
 
-                if ($value['cost'] <= 0 && $model->platform !== MktConst::PLATFORM_TX) {
+                if ($value['cost'] <= 0) {
                     continue;
                 }
 

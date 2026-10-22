@@ -8,7 +8,6 @@ declare(strict_types=1);
 namespace App\Controller\Put\Advertiser;
 
 use App\Constants\ErrorCode;
-use App\Constants\MktConst;
 use App\Constants\RedisConst;
 use App\Controller\AbstractAction;
 use App\Exception\ValidationException;
@@ -55,17 +54,7 @@ class SaveAction extends AbstractAction
         $Model->keep_type = $params['keep_type'];
         $Model->notify_fill = $params['notify_fill'];
         $Model->notify_discount = $params['notify_discount'] ?? 0;
-        if ($Model->platform === MktConst::PLATFORM_TX) {
-            if (isset($params['extra']) && trim($params['extra']) !== '') {
-                $extra = json_decode($params['extra'], true);
-                if (json_last_error() !== JSON_ERROR_NONE || !is_array($extra)) {
-                    throw new ValidationException(ErrorCode::PARAMS_ERROR, '扩展配置必须是有效的 JSON 对象');
-                }
-                $Model->extra = array_replace($Model->extra ?? [], $extra);
-            }
-        } else {
-            $Model->extra = isset($params['extra']) ? json_decode($params['extra'], true) : [];
-        }
+        $Model->extra = isset($params['extra']) ? json_decode($params['extra'], true) : [];
         $Model->save();
 
         /*删除缓存数据*/

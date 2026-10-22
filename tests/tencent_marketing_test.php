@@ -126,10 +126,19 @@ namespace {
     $tests['计划游标、预算和重复游标'] = function () {
         $tx = (new TestTx())->setToken('test');
         $tx->http->responses[] = ok(['list' => [['adgroup_id' => 9, 'adgroup_name' => '计划', 'daily_budget' => 12345, 'configured_status' => 'AD_STATUS_SUSPEND']], 'cursor_page_info' => ['has_more' => true, 'cursor' => 'next']]);
+        $tx->http->responses[] = ok(['list' => [['adgroup_id' => 10, 'adgroup_name' => '下一页计划']], 'cursor_page_info' => ['has_more' => false]]);
         $result = $tx->planGet('123');
-        check($result['list'][0]['budget_amount'] === 123.45 && $result['list'][0]['put_status'] === 2 && $result['page_info']['total_page'] === 2, '计划转换错误');
-        $tx->http->responses[] = ok(['list' => [], 'cursor_page_info' => ['has_more' => true, 'cursor' => 'next']]);
-        rejects(function () use ($tx) { $tx->planGet('123', 2, 100, [], false, 'next'); }, '重复游标必须终止');
+        check($result['list'][0]['budget_amount'] === 123.45 && $result['list'][0]['put_status'] === 2, '计划转换错误');
+        check(array_column($result['list'], 'plan_id') === ['9', '10'] && $result['page_info']['total_page'] === 1, '游标应在适配器内合并为公共分页格式');
+        check(!isset($tx->http->requests[0][2]['query']['cursor']) && $tx->http->requests[1][2]['query']['cursor'] === 'next', '适配器未正确传递游标');
+        foreach (['a', 'b', 'a'] as $cursor) {
+            $tx->http->responses[] = ok(['list' => [], 'cursor_page_info' => ['has_more' => true, 'cursor' => $cursor]]);
+        }
+        rejects(function () use ($tx) { $tx->planGet('123'); }, '跨页循环游标必须终止');
+        $tx->http->responses[] = ok(['list' => [], 'cursor_page_info' => ['has_more' => true]]);
+        rejects(function () use ($tx) { $tx->planGet('123'); }, '有下一页却缺少游标必须终止');
+        $tx->http->responses[] = ok(['list' => [], 'cursor_page_info' => ['has_more' => false]]);
+        check($tx->planGet('123')['list'] === [], '重复同步的空结果应正常结束');
     };
     $tests['授权身份及刷新保留语义'] = function () {
         $tx = (new TestTx())->setApp('456', 'secret')->setAppInfo(['auth_url' => 'https://developers.e.qq.com/oauth/authorize?redirect_uri=https%3A%2F%2Fexample.com%2Fuc%2Fmkt%2Ftencent']);

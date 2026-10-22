@@ -16,6 +16,7 @@ namespace TencentTest {
         }
         public function orderBy($field, $direction) { return $this; }
         public function get() { return $this; }
+        public function first() { return $this->all()[0] ?? null; }
         public function all() { return array_values($this->rows); }
         public function toArray() { return array_map(function ($row) { return (array)$row; }, $this->all()); }
     }
@@ -30,6 +31,7 @@ namespace TencentTest {
         public static function where($field, $value) { return static::query()->where($field, $value); }
         public function fill(array $attributes) { foreach ($attributes as $key => $value) { $this->$key = $value; } return $this; }
         public function save() { $this->writes++; return true; }
+        public function getTable() { return 'mkt_advertiser'; }
     }
 }
 namespace App\Model\Mkt {
@@ -38,14 +40,21 @@ namespace App\Model\Mkt {
     class MktAccount extends \TencentTest\Model { public static $rows = []; }
     class MktAdvertiser extends \TencentTest\Model { public static $rows = []; }
     class MktPlan extends \TencentTest\Model { public static $rows = []; }
+    class ReportDailyAdvertiser extends \TencentTest\Model { public static $rows = []; }
 }
 namespace App\Controller {
     class AbstractController
     {
         public $request;
-        public function responseSuccess($data) { return $data; }
+        public function responseSuccess($data = []) { return $data; }
         public function responseRecord($records) { return ['records' => $records]; }
     }
+    class AbstractAction extends AbstractController {
+        public function validated(array $params) { return $params; }
+    }
+}
+namespace App\Utils {
+    trait ValidateTrait {}
 }
 namespace Hyperf\DbConnection {
     class Db
@@ -58,14 +67,20 @@ namespace Hyperf\DbConnection {
 namespace Hyperf\HttpServer\Contract {
     interface RequestInterface {}
 }
+namespace Hyperf\Constants {
+    class AbstractConstants {}
+}
 namespace {
     $root = dirname(__DIR__);
     require $root . '/admin_server/app/Constants/MktConst.php';
     require $root . '/admin_server/app/Service/Mkt/MktService.php';
     require $root . '/admin_server/app/Controller/Mkt/CommonController.php';
     require $root . '/admin_server/app/Controller/Launch/LadController.php';
+    require $root . '/admin_server/app/Constants/RedisConst.php';
+    require $root . '/admin_server/app/Controller/Put/Advertiser/SaveAction.php';
 
     function data_get($data, $key, $default = null) { return $data[$key] ?? $default; }
+    function redis_client($pool) { return new class { public function del($key) {} }; }
     class FilterRequest implements \Hyperf\HttpServer\Contract\RequestInterface
     {
         public $params;
@@ -84,11 +99,16 @@ namespace {
     class PersistenceService extends \App\Service\Mkt\MktService
     {
         public $adapterCalls = 0;
+        public $syncAdapter;
         public function user(array $data) { return $this->saveUser($data); }
         public function account(array $data) { return $this->saveAccount($data); }
         public function advertiser(array $data) { return $this->saveAdvertiser($data); }
         public function plan(array $data) { return $this->savePlan($data); }
-        public function getMkt(string $platform) { $this->adapterCalls++; throw new \RuntimeException('不应调用平台适配器'); }
+        public function getMkt(string $platform) {
+            $this->adapterCalls++;
+            if ($this->syncAdapter) { return $this->syncAdapter; }
+            throw new \RuntimeException('不应调用平台适配器');
+        }
     }
     function blocked($call, $expected) {
         try { $call(); } catch (\Exception $e) {
@@ -159,5 +179,43 @@ namespace {
         }
     }
     echo '通过：已有数字来源筛选及四个旧版报表查询兼容腾讯' . PHP_EOL;
-    echo '共通过 6 组持久化及筛选边界测试。' . PHP_EOL;
+    foreach (['tx', 'ks'] as $platform) {
+        $extra = ['user_action_set_id' => '123', 'other' => ['keep' => true]];
+        $advertiser = new MktAdvertiser([
+            'advertiser_id' => '8', 'app_code' => 'demo', 'platform' => $platform,
+            'advertiser_name' => '测试', 'extra' => $extra,
+            'account' => (object)['user' => (object)['access_token' => 'test-token']],
+        ]);
+        MktAdvertiser::$rows = ['8' => $advertiser];
+        $report = new \App\Model\Mkt\ReportDailyAdvertiser(['date' => '2026-10-21', 'advertiser_id' => '8', 'platform' => $platform, 'exists' => true]);
+        \App\Model\Mkt\ReportDailyAdvertiser::$rows = [$report];
+        $adapter = new class {
+            public $cost = 0;
+            public $extra;
+            public $planArgs;
+            public function setToken($token) { return $this; }
+            public function setAppInfo($extra) { $this->extra = $extra; return $this; }
+            public function reportAdvertiserGet($id, $date, $granularity, $search) { return [['advertiser_id' => $id, 'date' => $date, 'hour' => '01', 'cost' => $this->cost]]; }
+            public function planGet(...$args) { $this->planArgs = $args; return ['list' => [['advertiser_id' => $args[0], 'plan_id' => 'tx-plan']], 'page_info' => ['total_page' => 1]]; }
+        };
+        $service->syncAdapter = $adapter;
+        $service->reportDailyAdvertiser('8', '2026-10-21');
+        $service->reportHourlyAdvertiser('8', '2026-10-21');
+        ensure($report->writes === 0, '各平台应使用相同的零消耗入库规则');
+        $adapter->cost = 10;
+        $service->reportDailyAdvertiser('8', '2026-10-21');
+        $service->reportHourlyAdvertiser('8', '2026-10-21');
+        ensure($report->writes === 2 && $adapter->extra === $extra, '各平台应共用报表更新和扩展配置传递');
+        $service->planList('8');
+        ensure(count($adapter->planArgs) === 5 && $adapter->planArgs[1] === 1, '公共同步不应增加平台游标参数');
+        $advertiser->extra['removed'] = 'old';
+        $save = new \App\Controller\Put\Advertiser\SaveAction();
+        $params = array_fill_keys(['launch_type', 'action_type', 'action_revenue', 'active_type', 'keep_type', 'notify_fill'], 0);
+        $params += ['advertiser_id' => '8', 'advertiser_name' => '测试', 'extra' => json_encode($extra)];
+        $save->request = new FilterRequest($params);
+        $save->handle();
+        ensure($advertiser->extra === $extra, '完整 JSON 保存应保留其他配置且允许删除旧键');
+    }
+    echo '通过：各平台共用计划同步、报表入库及完整扩展配置保存' . PHP_EOL;
+    echo '共通过 7 组持久化及筛选边界测试。' . PHP_EOL;
 }

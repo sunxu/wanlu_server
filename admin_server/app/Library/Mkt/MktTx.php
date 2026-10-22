@@ -156,7 +156,7 @@ class MktTx extends MktAbstract
         return $list;
     }
 
-    public function planGet(string $advertiserId, int $page = 1, int $pageSize = 100, array $planIds = [], $isSearch = false, string $cursor = '')
+    public function planGet(string $advertiserId, int $page = 1, int $pageSize = 100, array $planIds = [], $isSearch = false)
     {
         $params = [
             'account_id' => $advertiserId,
@@ -164,35 +164,40 @@ class MktTx extends MktAbstract
             'page_size' => min(100, max(1, $pageSize)),
             'fields' => ['adgroup_id', 'adgroup_name', 'configured_status', 'daily_budget', 'begin_date', 'end_date', 'time_series', 'created_time', 'last_modified_time'],
         ];
-        if ($cursor !== '') {
-            $params['cursor'] = $cursor;
-        }
         if ($planIds) {
             $params['filtering'] = [['field' => 'adgroup_id', 'operator' => 'IN', 'values' => array_map('strval', $planIds)]];
         }
-        $data = $this->requestByToken('adgroups/get', $params);
         $list = [];
-        foreach ($data['list'] ?? [] as $row) {
-            $list[] = [
-                'advertiser_id' => $advertiserId,
-                'plan_id' => (string)$row['adgroup_id'],
-                'plan_name' => $row['adgroup_name'],
-                'put_status' => ['AD_STATUS_NORMAL' => 1, 'AD_STATUS_SUSPEND' => 2][$row['configured_status'] ?? ''] ?? 0,
-                'budget_mode' => empty($row['daily_budget']) ? 'BUDGET_MODE_INFINITE' : 'BUDGET_MODE_DAY',
-                'budget_amount' => (float)($row['daily_budget'] ?? 0) / 100,
-                'schedule_start' => $this->dateTime($row['begin_date'] ?? null),
-                'schedule_end' => $this->dateTime($row['end_date'] ?? null),
-                'schedule_time' => $row['time_series'] ?? '',
-                'create_time' => $this->dateTime($row['created_time'] ?? null),
-                'update_time' => $this->dateTime($row['last_modified_time'] ?? null),
-            ];
-        }
-        $hasMore = !empty($data['cursor_page_info']['has_more']);
-        $nextCursor = (string)($data['cursor_page_info']['cursor'] ?? '');
-        if ($hasMore && ($nextCursor === '' || $nextCursor === $cursor)) {
-            throw new Exception('腾讯营销单元分页游标无效');
-        }
-        return ['list' => $list, 'next_cursor' => $nextCursor, 'page_info' => ['total_page' => $hasMore ? $page + 1 : $page]];
+        $seenCursors = [];
+        // 将游标分页转换为公共服务已有的 list / page_info 结构。
+        do {
+            $data = $this->requestByToken('adgroups/get', $params);
+            foreach ($data['list'] ?? [] as $row) {
+                $list[] = [
+                    'advertiser_id' => $advertiserId,
+                    'plan_id' => (string)$row['adgroup_id'],
+                    'plan_name' => $row['adgroup_name'],
+                    'put_status' => ['AD_STATUS_NORMAL' => 1, 'AD_STATUS_SUSPEND' => 2][$row['configured_status'] ?? ''] ?? 0,
+                    'budget_mode' => empty($row['daily_budget']) ? 'BUDGET_MODE_INFINITE' : 'BUDGET_MODE_DAY',
+                    'budget_amount' => (float)($row['daily_budget'] ?? 0) / 100,
+                    'schedule_start' => $this->dateTime($row['begin_date'] ?? null),
+                    'schedule_end' => $this->dateTime($row['end_date'] ?? null),
+                    'schedule_time' => $row['time_series'] ?? '',
+                    'create_time' => $this->dateTime($row['created_time'] ?? null),
+                    'update_time' => $this->dateTime($row['last_modified_time'] ?? null),
+                ];
+            }
+            $hasMore = !empty($data['cursor_page_info']['has_more']);
+            if ($hasMore) {
+                $cursor = (string)($data['cursor_page_info']['cursor'] ?? '');
+                if ($cursor === '' || isset($seenCursors[$cursor])) {
+                    throw new Exception('腾讯营销单元分页游标无效或重复');
+                }
+                $seenCursors[$cursor] = true;
+                $params['cursor'] = $cursor;
+            }
+        } while ($hasMore);
+        return ['list' => $list, 'page_info' => ['total_page' => 1]];
     }
 
     protected function dateTime($value)
