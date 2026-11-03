@@ -131,17 +131,21 @@ return [
                 'callback_url' => '__CALLBACK_URL__',
             ]
         ],
-        [
-            'name' => '荣耀',
-            'path' => '/v1/ad/honor/%s/?%s',
-            'params' => [
-                'account_id' => '__ADVERTISER_ID__',
-                'oaid' => '__OAID__',
-                'ip' => '__IP__',
-                'os' => '__OS__',
-                'request_id' => '__REQUESTID__',
-                'track_id' => '__TRACK_ID__',
-            ]
-        ],
+       [
+               'name' => '荣耀',
+               'path' => '/v1/ad/honor/%s/?%s',
+               'params' => [
+                   'account_id' => '__ADVERTISER_ID__',
+                   'oaid' => '__OAID__',
+                   'ip' => '__IP__',
+                   'os' => '__OS__',
+                   'request_id' => '__REQUESTID__',
+                   'track_id' => '__TRACK_ID__',
+                   'ts' => '__TIME__',
+                   'ua' => '__UA__',
+                   'gid' => '__GROUPID__',
+                   'pid' => '__CAMPAIGNID__',
+               ]
+       ],
     ],
 ];
