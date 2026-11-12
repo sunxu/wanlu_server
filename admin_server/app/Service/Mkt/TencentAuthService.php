@@ -40,19 +40,18 @@ class TencentAuthService
         if (!preg_match('/^[a-f0-9]{64}$/D', $state) || $code === '' || strlen($code) > 64) {
             throw new Exception('腾讯授权回调参数无效');
         }
-        // GET + DEL 必须原子执行，防止并发回调重放。
-        $appId = RedisManager::get()->eval("local v = redis.call('GET', KEYS[1]); if v then redis.call('DEL', KEYS[1]); end; return v", ['mkt:tx:oauth:' . $state], 1);
-        $original = json_decode((string)$appId, true);
-        if (!is_array($original) || empty($original['app_id']) || empty($original['operator_id'])) {
+        // 原子地将一次性 state 转移到待确认区，避免前端轮询看到短暂空窗。
+        // 腾讯公开回调不具备后台登录态，不得在这里交换令牌。
+        $script = "local v = redis.call('GET', KEYS[1]); if not v then return false; end; "
+            . "local p = cjson.decode(v); p.code = ARGV[1]; "
+            . "redis.call('SETEX', KEYS[2], 600, cjson.encode(p)); "
+            . "redis.call('DEL', KEYS[1]); return 1";
+        $moved = RedisManager::get()->eval(
+            $script, ['mkt:tx:oauth:' . $state, 'mkt:tx:oauth:pending:' . $state, $code], 2
+        );
+        if (!$moved) {
             throw new Exception('腾讯授权请求已过期或已使用，请重新授权');
         }
-        // 腾讯公开 GET 回调不具备后台登录态，仅暂存授权码。
-        // 授权关系只能由发起授权的登录用户经受保护接口完成。
-        RedisManager::get()->setex('mkt:tx:oauth:pending:' . $state, 600, json_encode([
-            'app_id' => (string)$original['app_id'],
-            'operator_id' => (string)$original['operator_id'],
-            'code' => $code,
-        ]));
     }
 
     public function complete(string $state, string $operatorId): bool
