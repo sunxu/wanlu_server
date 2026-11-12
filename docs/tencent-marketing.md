@@ -58,13 +58,18 @@ php artisan mkt:tx-tables 应用代码
 
 全量补齐后，`default` 和其他来源应用也包含腾讯表，后续新建 App 继续通过原有遍历逻辑与巨量、快手一起复制，无需新增创建入口判断或单独初始化模板。点击请求不会自动建表。腾讯点击表进入现有未归因点击清理和历史点击归档流程。
 
-在腾讯点击监测工具中填写监测地址页面生成的 Feedback URL：
+在 DataNexus 的 Android 应用广告效果监测链接组中，填写后台「监测地址」页生成的带宏 URL（宏在投放点击发生时由腾讯替换）。例如：
 
 ```text
-https://应用所属域名/v1/ad/tx/应用代码/
+https://应用所属域名/v1/ad/tx/应用代码/?advertiser_id=__ACCOUNT_ID__&adgroup_id=__ADGROUP_ID__&campaign_id=__CAMPAIGN_ID__&creative_id=__AD_ID__&click_id=__CLICK_ID__&click_time=__CLICK_TIME__&muid=__MUID__&android_id=__HASH_ANDROID_ID__&oaid=__OAID__&ip=__IP__&user_agent=__USER_AGENT__
 ```
 
-选择下发 `advertiser_id`、`adgroup_id`、`creative_id`、`campaign_id`、`click_id`、`click_time`、`muid`、`android_id`、`oaid`、`ip`、`user_agent`。参数由腾讯附加，不在地址里拼其他平台的宏。
+`admin_server/config/autoload/ad.php` 负责生成上述监测参数，`advertiser_id` 等名称属于**本地接收字段**，右侧 `__...__` 才是腾讯宏。监测方案采用**非 Callback 的 OAuth + `user_actions/add`**，因此不拼接 `__CALLBACK__`，并在腾讯投放端选择「已有数据源上报」。确认 DataNexus 实际链接组支持这些宏后再启用投放。
+
+- `__OAID__` 下发 OAID 原值，用于本地设备归因，回传时只计算一次 MD5；外部如果已经传入 32 位哈希，则保持其值，避免二次 MD5。不要直接把 `__HASH_OAID__` 替换到上述 `oaid` 参数：本地按设备 OAID 原值匹配，会造成归因命中率下降。
+- `__HASH_ANDROID_ID__` 已是 MD5，点击接收和回传均不再重复哈希；本地设备归因仍以原始 Android ID 匹配其 MD5。
+- `__MUID__` 保留已有字段映射，兼容已上线历史点击与归因；当前存储以 `imei` 列承载该值是**历史兼容约定**，并不意味着 MUID 就是原始 IMEI，后续应另行评估明确的设备标识存储方案，不在本次修改点击表结构。
+- 腾讯后台必须真实下发 `click_id` 和 `click_time`，不得由服务端伪造。
 
 接收接口将 `advertiser_id → account_id`、`adgroup_id → aid`、`creative_id → cid`；保留 `click_id`，规范化点击时间和设备标识。账户须为已启用且绑定当前应用的腾讯广告主。成功应答 `{"ret":0,"msg":"OK"}`；缺表或非法参数不返回成功。
 
@@ -80,7 +85,7 @@ https://应用所属域名/v1/ad/tx/应用代码/
 }
 ```
 
-`user_action_set_id` 必须是有效数字 ID。激活使用 `ACTIVATE_APP`；留存触发时使用 `START_APP`，具体触发时机由现有自然日或 24 小时定义决定。关键行为使用 `key_action_type`，值必须与腾讯已配置且支持的转化目标一致；选择 `CUSTOM` 时必须提供 `custom_action`。如现有关键行为采用加桌，上报时同样可按账户配置映射，未配置时使用 `ADD_DESKTOP`。
+`user_action_set_id` 必须是有效数字 ID。激活使用 `ACTIVATE_APP`；次日留存使用 `START_APP`，回传附带 `action_param.length_of_stay=1`；具体触发时机沿用现有自然日或 24 小时定义。关键行为使用 `key_action_type`，值必须与腾讯已配置且支持的转化目标一致；选择 `CUSTOM` 时必须提供 `custom_action`。如现有关键行为采用加桌，上报时同样可按账户配置映射，未配置时使用 `ADD_DESKTOP`。
 
 上报接口为 `user_actions/add`，包含设备哈希和原始点击 ID。事件幂等标识由应用、账户、点击、事件类型和发生时间生成；重试保持不变。失败继续使用现有通知次数及重试流程，不将失败标成成功。
 
