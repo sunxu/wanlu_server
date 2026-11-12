@@ -65,7 +65,9 @@ class TencentService
             $value = (string)($params[$key] ?? '');
             if ($value !== '') {
                 // OAID 是点击下发的原值；IMEI / AndroidID 已在点击接收时规范成 MD5。
-                $user[$field] = $key === 'oaid' ? md5($value) : strtolower($value);
+                $user[$field] = $key === 'oaid'
+                    ? (preg_match('/^[a-f0-9]{32}$/iD', $value) ? strtolower($value) : md5($value))
+                    : strtolower($value);
                 if (!preg_match('/^[a-f0-9]{32}$/D', $user[$field])) {
                     throw new Exception('腾讯回传设备标识格式错误');
                 }
@@ -80,6 +82,10 @@ class TencentService
             // 以原始事件确定幂等标识，任务重试不改变该值。
             'outer_action_id' => 'tx_' . hash('sha256', ($params['app_code'] ?? '') . '|' . $accountId . '|' . $clickId . '|' . $event . '|' . $time),
         ];
+        // DataNexus requires retention day for START_APP next-day retention.
+        if ($type === 'START_APP') {
+            $action['action_param'] = ['length_of_stay' => 1];
+        }
         if ($type === 'CUSTOM') {
             $custom = $extra['custom_action'] ?? '';
             if (!is_string($custom) || trim($custom) === '' || strlen($custom) > 128) {
