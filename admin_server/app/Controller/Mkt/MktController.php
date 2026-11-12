@@ -14,6 +14,7 @@ use App\Service\Mkt\TencentAuthService;
 use App\Utils\Log;
 use Exception;
 use Hyperf\DbConnection\Db;
+use Hyperf\Context\Context;
 use Hyperf\View\RenderInterface;
 use Psr\Http\Message\ResponseInterface;
 
@@ -31,7 +32,7 @@ class MktController extends AbstractController
             return $this->responseError(-1, '请选择腾讯开放平台应用');
         }
         try {
-            return $this->responseSuccess(['url' => make(TencentAuthService::class)->authorize((string)$appId)]);
+            return $this->responseSuccess(['url' => make(TencentAuthService::class)->authorize((string)$appId, (string)data_get(Context::get('_userInfo'), 'user_id', ''))]);
         } catch (Exception $e) {
             return $this->responseError(-1, $e->getMessage());
         }
@@ -46,7 +47,24 @@ class MktController extends AbstractController
         }
         try {
             make(TencentAuthService::class)->callback($state, $code);
-            return $this->responseSuccess(['message' => '腾讯营销授权成功，请返回广告主管理页面刷新']);
+            return $this->responseSuccess(['message' => '腾讯回调已接收，请在原后台页面完成授权确认']);
+        } catch (Exception $e) {
+            return $this->responseError(-1, $e->getMessage());
+        }
+    }
+
+    public function tencentComplete()
+    {
+        $state = $this->request->input('state');
+        if (!is_string($state)) {
+            return $this->responseError(-1, '腾讯授权 state 无效');
+        }
+        try {
+            $completed = make(TencentAuthService::class)->complete(
+                $state,
+                (string)data_get(Context::get('_userInfo'), 'user_id', '')
+            );
+            return $this->responseSuccess(['completed' => $completed]);
         } catch (Exception $e) {
             return $this->responseError(-1, $e->getMessage());
         }
