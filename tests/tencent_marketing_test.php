@@ -214,10 +214,10 @@ namespace {
     };
     $tests['腾讯原始 MUID 大小写与归因一致'] = function () {
         $click = ['advertiser_id' => '123', 'adgroup_id' => '9', 'click_id' => 'case-test', 'click_time' => (string)(time() - 10), 'muid' => 'AABBCCDD'];
-        $row = \\App\\Services\\Mkt\\TencentClick::normalize($click);
+        $row = \App\Services\Mkt\TencentClick::normalize($click);
         check($row['imei'] === md5('aabbccdd'), '原始 MUID 应按归因匹配规则转小写后哈希');
         $click['muid'] = md5('AABBCCDD');
-        check(\\App\\Services\\Mkt\\TencentClick::normalize($click)['imei'] === md5('AABBCCDD'), '腾讯预哈希 MUID 不应重复哈希');
+        check(\App\Services\Mkt\TencentClick::normalize($click)['imei'] === md5('AABBCCDD'), '腾讯预哈希 MUID 不应重复哈希');
     };
     $tests['激活留存和关键行为回传幂等'] = function () use ($click) {
         $params = \App\Services\Mkt\TencentClick::normalize($click); $params['app_code'] = 'demo';
