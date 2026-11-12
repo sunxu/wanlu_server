@@ -183,8 +183,3 @@ admin_server/log
 
 api_server/vendor/
 
-
-# Environment secrets (existing tracked files require separate removal)
-**/.env
-**/.env.*
-!**/.env.example
