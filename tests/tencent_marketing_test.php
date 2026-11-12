@@ -239,6 +239,47 @@ namespace {
         rejects(function () use ($service) { $service->callback(str_repeat('f', 64), 'code'); }, '过期 state 必须拒绝');
     };
     $click = ['advertiser_id' => '123', 'adgroup_id' => '9', 'creative_id' => '7', 'click_id' => 'click-1', 'click_time' => (string)(time() - 60), 'oaid' => 'OAID-original', 'muid' => md5('123456789012345'), 'android_id' => md5('android')];
+    $tests['DataNexus 点击监测宏与项目参数一致'] = function () use ($root) {
+        $config = require $root . '/admin_server/config/autoload/ad.php';
+        $tx = null;
+        foreach ($config['source'] as $source) {
+            if ($source['name'] === '腾讯营销') { $tx = $source; break; }
+        }
+        check(is_array($tx) && $tx['path'] === '/v1/ad/tx/%s/?%s', '腾讯监测路径必须生成宏参数');
+        $required = [
+            'advertiser_id' => '__ACCOUNT_ID__',
+            'adgroup_id' => '__ADGROUP_ID__',
+            'campaign_id' => '__CAMPAIGN_ID__',
+            'creative_id' => '__AD_ID__',
+            'click_id' => '__CLICK_ID__',
+            'click_time' => '__CLICK_TIME__',
+            'muid' => '__MUID__',
+            'android_id' => '__HASH_ANDROID_ID__',
+            'oaid' => '__OAID__',
+            'ip' => '__IP__',
+            'user_agent' => '__USER_AGENT__',
+        ];
+        check($tx['params'] === $required, '腾讯点击参数与已确认宏必须一致');
+        check(!in_array('__CALLBACK__', $tx['params'], true), '非 Callback 模式不得混入 Callback 宏');
+        $query = urldecode(http_build_query($tx['params']));
+        parse_str($query, $parsed);
+        check($parsed['click_id'] === '__CLICK_ID__' && $parsed['oaid'] === '__OAID__', 'URL 编码不能破坏点击宏');
+    };
+    $tests['腾讯 OAID 原值和 MD5 不重复哈希'] = function () {
+        $base = ['advertiser_id' => '123', 'adgroup_id' => '9', 'click_id' => 'oaid-case', 'click_time' => (string)(time() - 10)];
+        $raw = 'OAID-original';
+        $hashed = strtoupper(md5($raw));
+        $rowRaw = \\App\\Services\\Mkt\\TencentClick::normalize($base + ['oaid' => $raw]);
+        $rowHash = \\App\\Services\\Mkt\\TencentClick::normalize($base + ['oaid' => $hashed]);
+        check($rowRaw['oaid'] === $raw, 'OAID 原值应保留用于归因');
+        check($rowHash['oaid'] === strtolower($hashed), '已哈希 OAID 应归一化小写');
+        $service = new \\App\\Services\\Mkt\\TencentService();
+        $extra = ['user_action_set_id' => '456'];
+        $rawData = $service->payload('activate', time() - 1, $rowRaw, $extra);
+        $hashData = $service->payload('activate', time() - 1, $rowHash, $extra);
+        check($rawData['actions'][0]['user_id']['hash_oaid'] === md5($raw), 'OAID 原值回传必须 MD5');
+        check($hashData['actions'][0]['user_id']['hash_oaid'] === md5($raw), '已哈希 OAID 回传不得二次 MD5');
+    };
     $tests['点击协议与哈希不重复计算'] = function () use ($click) {
         $data = \App\Services\Mkt\TencentClick::normalize($click);
         check($data['imei'] === $click['muid'] && $data['oaid'] === $click['oaid'] && $data['aid'] === '9', '点击字段或 MD5 转换错误');
@@ -267,6 +308,7 @@ namespace {
         check($active['actions'][0]['user_id']['hash_imei'] === $click['muid'], 'IMEI 被重复 MD5');
         $keep = $service->payload('keep1', $time, $params, $extra);
         check($keep['actions'][0]['action_type'] === 'START_APP' && $keep['actions'][0]['outer_action_id'] !== $active['actions'][0]['outer_action_id'], '留存与激活应使用不同事件标识');
+        check(($keep['actions'][0]['action_param']['length_of_stay'] ?? null) === 1, '次日留存必须带 length_of_stay=1');
         $key = $service->payload('key_action', $time, $params, $extra);
         check($key['actions'][0]['custom_action'] === 'key_action' && $key['actions'][0]['trace']['click_id'] === 'click-1', '关键行为配置或点击追踪错误');
         rejects(function () use ($service, $time, $params) { $service->payload('key_action', $time, $params, ['user_action_set_id' => 456]); }, '不得猜测关键行为');
