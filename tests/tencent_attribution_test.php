@@ -42,7 +42,8 @@ namespace TencentAttributionTest {
                 usort($rows, function ($a, $b) use ($field, $direction) { return $direction === 'desc' ? $b[$field] <=> $a[$field] : $a[$field] <=> $b[$field]; });
             }
             if (!$rows) { return null; }
-            return $this->columns ? array_intersect_key($rows[0], array_flip($this->columns)) : $rows[0];
+            $row = $this->columns ? array_intersect_key($rows[0], array_flip($this->columns)) : $rows[0];
+            return $this->table === 'mkt_advertiser' && \DB::$advertiserAsObject ? (object)$row : $row;
         }
         public function exists() { return $this->first() !== null; }
         public function leftJoin(...$args) { return $this; }
@@ -123,6 +124,7 @@ namespace {
     class DB
     {
         public static $tables = [];
+        public static $advertiserAsObject = false;
         private static $snapshot;
         public static function connection($name) { return new self(); }
         public static function table($table) { return new \TencentAttributionTest\Query($table); }
@@ -149,6 +151,7 @@ namespace {
     $reset = function () use ($device) {
         global $jobs;
         DB::$tables = ['mkt_advertiser' => [['advertiser_id' => '123', 'platform' => 'tx', 'app_code' => 'demo', 'status' => 1]], 'app_demo_tx' => [], 'app_demo' => [$device], 'com_ad_error' => []];
+        DB::$advertiserAsObject = false;
         $jobs = [];
         \App\Services\Helper\Helper::$attribution = ['code' => 202];
     };
@@ -159,6 +162,26 @@ namespace {
     ensure($controller->tx($request, 'demo')->data['ret'] === 0 && count(DB::$tables['app_demo_tx']) === 1, '重复下发应保持一条点击');
     ensure(DB::$tables['app_demo_tx'][0]['aid'] === '9', '营销单元未映射为计划');
     echo '通过：点击入库与重复下发' . PHP_EOL;
+
+    // Production Query Builder typically returns stdClass; also exercise
+    // absent, disabled, wrong-app and wrong-platform records without writes.
+    $reset(); DB::$advertiserAsObject = true;
+    ensure($controller->tx($request, 'demo')->data['ret'] === 0 && count(DB::$tables['app_demo_tx']) === 1, 'stdClass 广告主应正常入库');
+    ensure($controller->tx($request, 'demo')->data['ret'] === 0 && count(DB::$tables['app_demo_tx']) === 1, 'stdClass 重复点击必须幂等');
+    $reset(); DB::$advertiserAsObject = true;
+    DB::$tables['mkt_advertiser'] = [];
+    ensure($controller->tx($request, 'demo')->status === 400 && count(DB::$tables['app_demo_tx']) === 0, '不存在广告主时不得写入');
+    $reset(); DB::$advertiserAsObject = true;
+    DB::$tables['mkt_advertiser'][0]['status'] = 0;
+    ensure($controller->tx($request, 'demo')->status === 400 && count(DB::$tables['app_demo_tx']) === 0, '停用广告主时不得写入');
+    $reset(); DB::$advertiserAsObject = true;
+    DB::$tables['mkt_advertiser'][0]['app_code'] = 'another_app';
+    ensure($controller->tx($request, 'demo')->status === 400 && count(DB::$tables['app_demo_tx']) === 0, '其他应用的广告主不得写入');
+    $reset(); DB::$advertiserAsObject = true;
+    DB::$tables['mkt_advertiser'][0]['platform'] = 'jl';
+    ensure($controller->tx($request, 'demo')->status === 400 && count(DB::$tables['app_demo_tx']) === 0, 'stdClass 下其他平台不得写入');
+    echo '通过：stdClass、数组、空记录及账户绑定的腾讯点击回归' . PHP_EOL;
+    $reset(); $controller->tx($request, 'demo');
 
     $attribution = \App\Services\Mkt\GuiyinService::handle('demo', $device);
     ensure($attribution['source'] === 8 && $attribution['ts'] === (int)$click['click_time'], '腾讯归因或点击时间遗漏');
