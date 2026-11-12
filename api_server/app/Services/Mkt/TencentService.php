@@ -82,6 +82,10 @@ class TencentService
             // 以原始事件确定幂等标识，任务重试不改变该值。
             'outer_action_id' => 'tx_' . hash('sha256', ($params['app_code'] ?? '') . '|' . $accountId . '|' . $clickId . '|' . $event . '|' . $time),
         ];
+        // DataNexus requires retention day for START_APP next-day retention.
+        if ($type === 'START_APP') {
+            $action['action_param'] = ['length_of_stay' => 1];
+        }
         if ($type === 'CUSTOM') {
             $custom = $extra['custom_action'] ?? '';
             if (!is_string($custom) || trim($custom) === '' || strlen($custom) > 128) {
