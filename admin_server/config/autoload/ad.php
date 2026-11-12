@@ -5,11 +5,24 @@ declare(strict_types=1);
 return [
     'base_url' => 'https://{domain}',
     'source' => [
-        // 腾讯在点击监测工具中配置 Feedback URL 后自动附加参数，无需伪造宏。
+        // DataNexus 点击监测链接组：宏由腾讯替换；不使用 Callback 上报。
+        // OAID 采用原值以兼容现有设备归因；Android ID 宏本身已是 MD5。
         [
             'name' => '腾讯营销',
-            'path' => '/v1/ad/tx/%s/',
-            'params' => [],
+            'path' => '/v1/ad/tx/%s/?%s',
+            'params' => [
+                'advertiser_id' => '__ACCOUNT_ID__',
+                'adgroup_id' => '__ADGROUP_ID__',
+                'campaign_id' => '__CAMPAIGN_ID__',
+                'creative_id' => '__AD_ID__',
+                'click_id' => '__CLICK_ID__',
+                'click_time' => '__CLICK_TIME__',
+                'muid' => '__MUID__',
+                'android_id' => '__HASH_ANDROID_ID__',
+                'oaid' => '__OAID__',
+                'ip' => '__IP__',
+                'user_agent' => '__USER_AGENT__',
+            ],
         ],
         [
             'name' => '巨量',
