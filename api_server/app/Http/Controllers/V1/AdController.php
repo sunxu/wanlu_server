@@ -27,6 +27,9 @@ class AdController extends Controller
             return response()->json(['ret' => 1, 'msg' => $e->getMessage()], 400);
         }
         $account = DB::connection('uc')->table('mkt_advertiser')->where('advertiser_id', $data['account_id'])->first();
+        // Laravel Query Builder::first() returns stdClass; test adapters may
+        // return arrays. Normalize both and reject missing accounts safely.
+        $account = is_object($account) ? (array)$account : (is_array($account) ? $account : []);
         if (($account['platform'] ?? '') !== AdConst::PUT_SOURCE_TX || ($account['app_code'] ?? '') !== $appCode || empty($account['status'])) {
             return response()->json(['ret' => 1, 'msg' => '腾讯广告主未绑定该应用或已停用'], 400);
         }
