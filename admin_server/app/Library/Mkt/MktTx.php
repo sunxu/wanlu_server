@@ -218,7 +218,37 @@ class MktTx extends MktAbstract
             $list = array_merge($list, $data['list']);
             $page++;
         } while ($page <= $data['page_info']['total_page']);
-        return $list;
+        if ($granularity !== 'daily' || count($list) <= 1) {
+            return $list;
+        }
+        // A report request is scoped to one advertiser and one date. Never silently
+        // persist only the first row if the upstream API returns multiple rows.
+        $date = $list[0]['date'] ?? null;
+        $advertiser = $list[0]['advertiser_id'] ?? null;
+        foreach ($list as $row) {
+            if (($row['date'] ?? null) !== $date || ($row['advertiser_id'] ?? null) !== $advertiser) {
+                throw new Exception('腾讯广告主报表返回多个日期或账户，拒绝错误聚合');
+            }
+        }
+        $combined = $list[0];
+        foreach (array_slice($list, 1) as $row) {
+            foreach (['cost', 'show', 'click', 'convert', 'active', 'next_day_open', 'key_action'] as $key) {
+                if (array_key_exists($key, $row)) {
+                    $combined[$key] = ($combined[$key] ?? 0) + $row[$key];
+                }
+            }
+        }
+        $divide = function ($value, $num) { return $num > 0 ? round($value / $num, 4) : 0; };
+        $combined['avg_show_cost'] = $divide($combined['cost'] * 1000, $combined['show']);
+        $combined['avg_click_cost'] = $divide($combined['cost'], $combined['click']);
+        $combined['click_rate'] = $divide($combined['click'] * 100, $combined['show']);
+        foreach (['convert' => 'click', 'active' => 'click', 'next_day_open' => 'active', 'key_action' => 'active'] as $key => $denominator) {
+            if (isset($combined[$key])) {
+                $combined[$key . '_cost'] = $divide($combined['cost'], $combined[$key]);
+                $combined[$key . '_rate'] = $divide($combined[$key] * 100, $combined[$denominator]);
+            }
+        }
+        return [$combined];
     }
 
     public function reportPlanGet(string $advertiserId, string $date, array $planIds = [], $granularity = 'daily', int $page = 1, int $pageSize = 100, $isSearch = false)

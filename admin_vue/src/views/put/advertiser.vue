@@ -263,7 +263,7 @@ import {getCurrentApp} from "@/utils/auth"
 import Pagination from '@/components/Pagination'
 import JsonEditor from '@/components/JsonEditor'
 import {Message} from "element-ui"
-import {getList, bindApp, saveData,updateStatus, tencentApplications, tencentAuthorize} from "@/api/put/advertiser"
+import {getList, bindApp, saveData,updateStatus, tencentApplications, tencentAuthorize, tencentComplete} from "@/api/put/advertiser"
 
 export default {
   components: {Pagination, JsonEditor},
@@ -334,14 +334,31 @@ export default {
       this.tencentAuthLoading = true
       try {
         const response = await tencentAuthorize(this.tencentAppId)
+        const state = new URL(response.data.url).searchParams.get('state')
+        if (!state || !/^[a-f0-9]{64}$/.test(state)) throw new Error('腾讯授权 state 无效')
         if (authWindow) {
           authWindow.location.href = response.data.url
         } else {
           window.location.assign(response.data.url)
+          return
         }
+        // 只由当前已登录后台发起确认，腾讯公开回调不直接写入授权关系。
+        let completed = false
+        for (let attempt = 0; attempt < 300; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          const result = await tencentComplete(state)
+          if (result.data.completed) {
+            completed = true
+            break
+          }
+        }
+        if (!completed) throw new Error('腾讯授权等待超时，请重新授权')
         this.tencentAuthVisible = false
+        Message({ message: '腾讯营销授权成功', type: 'success' })
+        this.fetchData()
       } catch (error) {
-        if (authWindow) authWindow.close()
+        if (authWindow && !authWindow.closed) authWindow.close()
+        Message({ message: error.message || '腾讯营销授权确认失败', type: 'error' })
       } finally {
         this.tencentAuthLoading = false
       }

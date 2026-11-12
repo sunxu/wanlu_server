@@ -21,7 +21,10 @@ class TencentService
             ->where('a.app_code', $params['app_code'] ?? '')->where('a.status', 1)
             ->where('a.platform', AdConst::PUT_SOURCE_TX)->where('d.platform', AdConst::PUT_SOURCE_TX)
             ->where('b.is_valid', 1)->first(['c.access_token', 'c.access_time', 'a.extra']);
-        if (empty($auth['access_token']) || (int)$auth['access_time'] <= time()) {
+        // Query Builder::first() normally returns stdClass, while isolated
+        // adapters may return arrays. Normalize both without dereferencing null.
+        $auth = is_object($auth) ? (array)$auth : (is_array($auth) ? $auth : []);
+        if (empty($auth['access_token']) || (int)($auth['access_time'] ?? 0) <= time()) {
             throw new Exception('腾讯授权令牌无效或已过期');
         }
         $extra = json_decode($auth['extra'] ?? '{}', true);

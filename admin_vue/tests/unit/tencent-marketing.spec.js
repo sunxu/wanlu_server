@@ -2,7 +2,7 @@ import globals from '@/config/global'
 import request from '@/utils/request'
 import { advertisers } from '@/api/common'
 import { getAdvertiser, ruleAdvertisers } from '@/api/put/common'
-import { getUrl, tencentApplications, tencentAuthorize } from '@/api/put/advertiser'
+import { getUrl, tencentApplications, tencentAuthorize, tencentComplete } from '@/api/put/advertiser'
 import Total from '@/views/launch/total.vue'
 import { shallowMount } from '@vue/test-utils'
 import _ from 'underscore'
@@ -68,8 +68,10 @@ describe('腾讯营销页面接入', () => {
   it('授权由后端生成地址，前端只传开发者应用 ID', () => {
     tencentApplications()
     tencentAuthorize('123')
+    tencentComplete('test-state')
     expect(request.mock.calls[0][0]).toEqual({ url: '/uc/v1/mkt/tx/applications', method: 'get' })
     expect(request.mock.calls[1][0].data).toEqual({ app_id: '123' })
+    expect(request.mock.calls[2][0]).toEqual({ url: '/uc/v1/mkt/tx/complete', method: 'post', data: { state: 'test-state' } })
   })
 
   it('监测地址继续从现有接口获取', () => {

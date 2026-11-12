@@ -8,6 +8,10 @@ export function tencentAuthorize(appId) {
   return request({ url: '/uc/v1/mkt/tx/authorize', method: 'post', data: { app_id: appId } })
 }
 
+export function tencentComplete(state) {
+  return request({ url: '/uc/v1/mkt/tx/complete', method: 'post', data: { state } })
+}
+
 export function getList(body) {
   return request({
     url: '/uc/v1/put/advertiser/list',
