@@ -47,7 +47,7 @@ class TencentClick
             'campaign_id' => (string)($params['campaign_id'] ?? ''),
             'cid' => (string)($params['creative_id'] ?? ''),
             'click_id' => $clickId,
-            'imei' => $hash((string)($params['muid'] ?? '')),
+            'imei' => $hash(strtolower((string)($params['muid'] ?? ''))),
             'oaid' => (string)($params['oaid'] ?? ''),
             'android_id' => $hash((string)($params['android_id'] ?? '')),
             'ip' => (string)($params['ip'] ?? ''),
