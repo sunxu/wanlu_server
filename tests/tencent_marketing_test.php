@@ -48,6 +48,21 @@ namespace App\Service\Mkt {
 }
 
 namespace {
+    class DB
+    {
+        public static $row;
+        public static function connection($name) { check($name === 'uc', '腾讯授权必须来自 uc 数据库'); return new class {
+            public function table($name) { return $this; }
+            public function join(...$args) { return $this; }
+            public function where(...$args) { return $this; }
+            public function first($columns) { return \DB::$row; }
+        }; }
+    }
+    class Log
+    {
+        public static function info($message, $context) {}
+    }
+
     date_default_timezone_set('Asia/Shanghai');
     $root = dirname(__DIR__);
     require $root . '/admin_server/app/Library/Mkt/MktAbstract.php';
@@ -256,6 +271,30 @@ namespace {
         check($key['actions'][0]['custom_action'] === 'key_action' && $key['actions'][0]['trace']['click_id'] === 'click-1', '关键行为配置或点击追踪错误');
         rejects(function () use ($service, $time, $params) { $service->payload('key_action', $time, $params, ['user_action_set_id' => 456]); }, '不得猜测关键行为');
         rejects(function () use ($service, $time, $params) { $service->payload('activate', $time, $params, []); }, '不得缺失行为源');
+    };
+    $tests['真实回传读取对象授权记录'] = function () {
+        $service = new class extends \App\Services\Mkt\TencentService {
+            public $requests = [];
+            protected function request(string $url, array $payload): array {
+                $this->requests[] = [$url, $payload];
+                return ['code' => 0];
+            }
+        };
+        $params = [
+            'account_id' => '123', 'app_code' => 'demo', 'click_id' => 'click-1',
+            'imei' => md5('123456789012345'),
+        ];
+        \DB::$row = (object)[
+            'access_token' => 'dummy-token', 'access_time' => time() + 1800,
+            'extra' => json_encode(['user_action_set_id' => '456']),
+        ];
+        check($service->callback('activate', time() - 1, $params) === true, '对象授权记录应可正常回传');
+        check(count($service->requests) === 1 && $service->requests[0][1]['account_id'] === 123, '对象授权记录的回传参数错误');
+        \DB::$row = ['access_token' => 'dummy-token', 'access_time' => time() + 1800, 'extra' => '{"user_action_set_id":"456"}'];
+        check($service->callback('activate', time() - 1, $params) === true, '数组授权记录应兼容');
+        \DB::$row = null;
+        rejects(function () use ($service, $params) { $service->callback('activate', time() - 1, $params); }, '缺失授权记录必须拒绝');
+        check(count($service->requests) === 2, '缺失授权记录不得发送回传');
     };
     $tests['平台来源与荣耀隔离'] = function () {
         check(\App\Constants\AdConst::PUT_SOURCE_MAP['tx'] === 8 && \App\Constants\AdConst::PUT_SOURCE_MAP['honor'] === 7, '平台来源冲突');
