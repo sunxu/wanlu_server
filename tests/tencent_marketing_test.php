@@ -269,11 +269,11 @@ namespace {
         $base = ['advertiser_id' => '123', 'adgroup_id' => '9', 'click_id' => 'oaid-case', 'click_time' => (string)(time() - 10)];
         $raw = 'OAID-original';
         $hashed = strtoupper(md5($raw));
-        $rowRaw = \\App\\Services\\Mkt\\TencentClick::normalize($base + ['oaid' => $raw]);
-        $rowHash = \\App\\Services\\Mkt\\TencentClick::normalize($base + ['oaid' => $hashed]);
+        $rowRaw = \App\Services\Mkt\TencentClick::normalize($base + ['oaid' => $raw]);
+        $rowHash = \App\Services\Mkt\TencentClick::normalize($base + ['oaid' => $hashed]);
         check($rowRaw['oaid'] === $raw, 'OAID 原值应保留用于归因');
         check($rowHash['oaid'] === strtolower($hashed), '已哈希 OAID 应归一化小写');
-        $service = new \\App\\Services\\Mkt\\TencentService();
+        $service = new \App\Services\Mkt\TencentService();
         $extra = ['user_action_set_id' => '456'];
         $rawData = $service->payload('activate', time() - 1, $rowRaw, $extra);
         $hashData = $service->payload('activate', time() - 1, $rowHash, $extra);
