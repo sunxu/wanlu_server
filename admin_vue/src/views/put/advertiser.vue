@@ -357,7 +357,7 @@ export default {
         Message({ message: '腾讯营销授权成功', type: 'success' })
         this.fetchData()
       } catch (error) {
-        if (authWindow && authWindow.location.href === 'about:blank') authWindow.close()
+        if (authWindow && !authWindow.closed) authWindow.close()
         Message({ message: error.message || '腾讯营销授权确认失败', type: 'error' })
       } finally {
         this.tencentAuthLoading = false
