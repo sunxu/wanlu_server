@@ -1,0 +1,84 @@
+name: Tencent Marketing P1 Regression
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/tencent-marketing-ci.yml'
+      - 'admin_server/**'
+      - 'api_server/**'
+      - 'admin_vue/**'
+      - 'tests/tencent_*.php'
+      - 'docs/tencent-marketing.md'
+  push:
+    branches:
+      - 'fix/tencent-marketing-p1-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tencent-marketing-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  php-isolated:
+    name: PHP isolated protocol regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install PHP CLI (without app secrets or database)
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+          tools: none
+      - name: PHP syntax checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            admin_server/app/Service/Mkt/TencentAuthService.php
+            admin_server/app/Controller/Mkt/MktController.php
+            admin_server/app/Library/Mkt/MktTx.php
+            api_server/app/Services/Mkt/TencentClick.php
+            tests/tencent_marketing_test.php
+            tests/tencent_persistence_test.php
+            tests/tencent_attribution_test.php
+            tests/tencent_app_creation_test.php
+          )
+          for file in "${files[@]}"; do php -l "$file"; done
+      - name: Run isolated Tencent regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          php tests/tencent_marketing_test.php
+          php tests/tencent_persistence_test.php
+          php tests/tencent_attribution_test.php
+          php tests/tencent_app_creation_test.php
+
+  vue-isolated:
+    name: Vue Tencent unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: admin_vue
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install frontend dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Run Tencent Vue Jest unit regression
+        env:
+          NODE_OPTIONS: --openssl-legacy-provider
+          CI: 'true'
+          NODE_ENV: test
+        run: node node_modules/jest/bin/jest.js tests/unit/tencent-marketing.spec.js --runInBand --watchman=false
