@@ -90,6 +90,26 @@ namespace {
         check(json_decode($query['group_by'], true) === ['date', 'adgroup_id'], '聚合参数编码错误');
         check(strlen($query['nonce']) === 32 && $query['access_token'] === 'test-token', '通用请求参数缺失');
     };
+    $tests['多行广告主日报合并且小时数据不合并'] = function () {
+        $tx = (new TestTx())->setToken('test');
+        $tx->http->responses[] = ok(['list' => [
+            ['date' => '2026-10-21', 'cost' => 100, 'view_count' => 10, 'valid_click_count' => 2, 'conversions_count' => 1, 'activated_count' => 1],
+            ['date' => '2026-10-21', 'cost' => 200, 'view_count' => 30, 'valid_click_count' => 6, 'conversions_count' => 2, 'activated_count' => 1],
+        ], 'page_info' => ['total_page' => 1]]);
+        $daily = $tx->reportAdvertiserGet('123', '2026-10-21');
+        check(count($daily) === 1 && $daily[0]['cost'] === 3.0 && $daily[0]['show'] === 40 && $daily[0]['click_rate'] === 20.0, '多行日报未完整汇总或比率计算错误');
+        $tx->http->responses[] = ok(['list' => [
+            ['date' => '2026-10-21', 'hour' => 1, 'cost' => 100],
+            ['date' => '2026-10-21', 'hour' => 2, 'cost' => 200],
+        ], 'page_info' => ['total_page' => 1]]);
+        $hourly = $tx->reportAdvertiserGet('123', '2026-10-21', 'hourly');
+        check(count($hourly) === 2 && $hourly[0]['hour'] === '01' && $hourly[1]['hour'] === '02', '小时报表不得按日报方式合并');
+        $tx->http->responses[] = ok(['list' => [
+            ['date' => '2026-10-21', 'cost' => 100],
+            ['date' => '2026-10-22', 'cost' => 200],
+        ], 'page_info' => ['total_page' => 1]]);
+        rejects(function () use ($tx) { $tx->reportAdvertiserGet('123', '2026-10-21'); }, '跨日期报表不得错误合并');
+    };
     $tests['零分母与配置化转化指标'] = function () {
         $tx = (new TestTx())->setToken('test')->setAppInfo(['tx_report_fields' => ['key_action' => 'key_page_view_count', 'next_day_open' => 'test_retained_count']]);
         $tx->http->responses[] = ok(['list' => [['cost' => 0, 'key_page_view_count' => 3, 'test_retained_count' => 2]], 'page_info' => ['total_page' => 1]]);
@@ -191,6 +211,13 @@ namespace {
         rejects(function () use ($invalid) { \App\Services\Mkt\TencentClick::normalize($invalid); }, '不应以当前时间补造点击');
         $invalid = $click; $invalid['advertiser_id'] = ['123'];
         rejects(function () use ($invalid) { \App\Services\Mkt\TencentClick::normalize($invalid); }, '应拒绝数组参数');
+    };
+    $tests['腾讯原始 MUID 大小写与归因一致'] = function () {
+        $click = ['advertiser_id' => '123', 'adgroup_id' => '9', 'click_id' => 'case-test', 'click_time' => (string)(time() - 10), 'muid' => 'AABBCCDD'];
+        $row = \\App\\Services\\Mkt\\TencentClick::normalize($click);
+        check($row['imei'] === md5('aabbccdd'), '原始 MUID 应按归因匹配规则转小写后哈希');
+        $click['muid'] = md5('AABBCCDD');
+        check(\\App\\Services\\Mkt\\TencentClick::normalize($click)['imei'] === md5('AABBCCDD'), '腾讯预哈希 MUID 不应重复哈希');
     };
     $tests['激活留存和关键行为回传幂等'] = function () use ($click) {
         $params = \App\Services\Mkt\TencentClick::normalize($click); $params['app_code'] = 'demo';
