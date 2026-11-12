@@ -48,7 +48,7 @@ class TencentClick
             'cid' => (string)($params['creative_id'] ?? ''),
             'click_id' => $clickId,
             'imei' => $hash(strtolower((string)($params['muid'] ?? ''))),
-            'oaid' => (string)($params['oaid'] ?? ''),
+            'oaid' => preg_match('/^[a-f0-9]{32}$/iD', (string)($params['oaid'] ?? '')) ? strtolower((string)$params['oaid']) : (string)($params['oaid'] ?? ''),
             'android_id' => $hash((string)($params['android_id'] ?? '')),
             'ip' => (string)($params['ip'] ?? ''),
             'ua' => (string)($params['user_agent'] ?? ''),
