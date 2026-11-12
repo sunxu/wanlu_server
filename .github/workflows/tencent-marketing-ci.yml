@@ -34,7 +34,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tracked_env_files="$(git ls-files | grep -E '(^|/)\\.env($|\\.)' | grep -v -E '(^|/)\\.env\\.example
+          tracked_env_files="$(git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v -E '(^|/)\.env\.example$' || true)"
+          if [ -n "$tracked_env_files" ]; then
+            echo "::error::Real .env files are tracked. Remove from Git before merging."
+            exit 1
+          fi
+          for template in admin_server/.env.example api_server/.env.example; do
+            test -f "$template" || { echo "::error::Missing $template"; exit 1; }
+          done
+      - name: Install PHP CLI (without app secrets or database)
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.1'
