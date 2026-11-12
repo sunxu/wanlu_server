@@ -218,7 +218,7 @@ class MktTx extends MktAbstract
             $list = array_merge($list, $data['list']);
             $page++;
         } while ($page <= $data['page_info']['total_page']);
-        if (count($list) <= 1) {
+        if ($granularity !== 'daily' || count($list) <= 1) {
             return $list;
         }
         // A report request is scoped to one advertiser and one date. Never silently
