@@ -65,7 +65,9 @@ class TencentService
             $value = (string)($params[$key] ?? '');
             if ($value !== '') {
                 // OAID 是点击下发的原值；IMEI / AndroidID 已在点击接收时规范成 MD5。
-                $user[$field] = $key === 'oaid' ? md5($value) : strtolower($value);
+                $user[$field] = $key === 'oaid'
+                    ? (preg_match('/^[a-f0-9]{32}$/iD', $value) ? strtolower($value) : md5($value))
+                    : strtolower($value);
                 if (!preg_match('/^[a-f0-9]{32}$/D', $user[$field])) {
                     throw new Exception('腾讯回传设备标识格式错误');
                 }
