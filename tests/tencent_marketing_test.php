@@ -192,7 +192,15 @@ namespace {
             public function eval($script, $args, $num) {
                 $key = $args[0];
                 $value = $this->data[$key] ?? null;
-                if (count($args) > 1 && $value !== $args[1]) return false;
+                if ($value === null) return false;
+                if ($num === 2) {
+                    $pending = json_decode($value, true);
+                    $pending['code'] = $args[2];
+                    $this->data[$args[1]] = json_encode($pending);
+                    unset($this->data[$key]);
+                    return 1;
+                }
+                if ($value !== $args[1]) return false;
                 unset($this->data[$key]);
                 return $value;
             }
