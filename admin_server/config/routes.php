@@ -76,6 +76,7 @@ Router::addGroup('/uc', function () {
         Router::addGroup('/mkt', function () {
             Router::get('/tx/applications', [App\Controller\Mkt\MktController::class, 'tencentApplications']);
             Router::post('/tx/authorize', [App\Controller\Mkt\MktController::class, 'tencentAuthorize']);
+            Router::post('/tx/complete', [App\Controller\Mkt\MktController::class, 'tencentComplete']);
             Router::get('/{appCode}/advertiser/project/ad', [CommonController::class, 'getAdvertiserProjectAd']);
             Router::get('/{appCode}/advertiser/project', [CommonController::class, 'getAdvertiserProject']);
             Router::get('/{appCode}/advertiser/plan', [CommonController::class, 'getAdvertiserWithPlan']);
