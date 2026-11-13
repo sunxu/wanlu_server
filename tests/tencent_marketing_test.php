@@ -245,7 +245,7 @@ namespace {
         foreach ($config['source'] as $source) {
             if ($source['name'] === '腾讯营销') { $tx = $source; break; }
         }
-        check(is_array($tx) && $tx['path'] === '/v1/ad/tx/%s/?%s', '腾讯监测路径必须生成宏参数');
+        check(is_array($tx) && $tx['path'] === '/v1/ad/tx/%s?%s', '腾讯监测地址必须使用无尾斜杠的接口路径，避免 301 重定向');
         $required = [
             'advertiser_id' => '__ACCOUNT_ID__',
             'adgroup_id' => '__ADGROUP_ID__',
@@ -266,6 +266,12 @@ namespace {
         check($tx['params'] === $required, '腾讯点击参数与已确认宏必须一致');
         // DataNexus 验证器要求 CALLBACK 宏；当前转化服务仍使用独立 OAuth user_actions/add。
         check($tx['params']['callback_url'] === '__CALLBACK__', '必须包含 DataNexus CALLBACK 下发宏');
+        // 与 api_server/routes/v1/api.php 的真实路由保持一致。
+        $routes = file_get_contents($root . '/api_server/routes/v1/api.php');
+        check(strpos($routes, "ad/tx/{appCode}") !== false, '腾讯监测 URL 必须匹配真实 API 路由');
+        $generatedUrl = sprintf($tx['path'], 'bxllzs', urldecode(http_build_query($tx['params'])));
+        check(strpos($generatedUrl, '/v1/ad/tx/bxllzs?') === 0, '不得生成会 301 跳转的尾斜杠 URL');
+        check(strpos($generatedUrl, '/v1/ad/tx/bxllzs/?') === false, '不得回退到带尾斜杠地址');
         $query = urldecode(http_build_query($tx['params']));
         parse_str($query, $parsed);
         check($parsed['click_id'] === '__CLICK_ID__' && $parsed['oaid'] === '__OAID__', 'URL 编码不能破坏点击宏');

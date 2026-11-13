@@ -9,7 +9,7 @@ return [
         // OAID 采用原值以兼容现有设备归因；Android ID 宏本身已是 MD5。
         [
             'name' => '腾讯营销',
-            'path' => '/v1/ad/tx/%s/?%s',
+            'path' => '/v1/ad/tx/%s?%s',
             'params' => [
                 'advertiser_id' => '__ACCOUNT_ID__',
                 'adgroup_id' => '__ADGROUP_ID__',
