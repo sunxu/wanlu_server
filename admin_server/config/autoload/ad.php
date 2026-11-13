@@ -5,7 +5,7 @@ declare(strict_types=1);
 return [
     'base_url' => 'https://{domain}',
     'source' => [
-        // DataNexus 点击监测链接组：宏由腾讯替换；不使用 Callback 上报。
+        // DataNexus 点击监测宏由腾讯替换；即使包含 __CALLBACK__，转化仍走 user_actions/add。
         // OAID 采用原值以兼容现有设备归因；Android ID 宏本身已是 MD5。
         [
             'name' => '腾讯营销',
@@ -20,6 +20,10 @@ return [
                 'muid' => '__MUID__',
                 'android_id' => '__HASH_ANDROID_ID__',
                 'oaid' => '__OAID__',
+                'hash_oaid' => '__HASH_OAID__',
+                'promoted_object_id' => '__PROMOTED_OBJECT_ID__',
+                'callback_url' => '__CALLBACK__',
+                'device_os_type' => '__DEVICE_OS_TYPE__',
                 'ip' => '__IP__',
                 'user_agent' => '__USER_AGENT__',
             ],

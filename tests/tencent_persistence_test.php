@@ -40,6 +40,12 @@ namespace App\Model\Mkt {
     class MktAccount extends \TencentTest\Model { public static $rows = []; }
     class MktAdvertiser extends \TencentTest\Model { public static $rows = []; }
     class MktPlan extends \TencentTest\Model { public static $rows = []; }
+    class MktAd extends \TencentTest\Model { public static $rows = []; }
+    class MktProject extends \TencentTest\Model {
+        public static $rows = [];
+        public static $findCalls = 0;
+        public static function find($id) { self::$findCalls++; return parent::find($id); }
+    }
     class ReportDailyAdvertiser extends \TencentTest\Model { public static $rows = []; }
     class ReportDailyPlan extends \TencentTest\Model { public static $rows = []; }
 }
@@ -105,6 +111,7 @@ namespace {
         public function account(array $data) { return $this->saveAccount($data); }
         public function advertiser(array $data) { return $this->saveAdvertiser($data); }
         public function plan(array $data) { return $this->savePlan($data); }
+        public function ad(array $data) { return $this->saveAd($data); }
         public function getMkt(string $platform) {
             $this->adapterCalls++;
             if ($this->syncAdapter) { return $this->syncAdapter; }
@@ -155,6 +162,23 @@ namespace {
     blocked(function () use ($service) { $service->planEmptyDayScheduleTime('9'); }, '仅支持查询');
     ensure($service->adapterCalls === 0, '公共修改入口应在加载适配器前拒绝腾讯');
     echo '通过：计划冲突及公共修改入口保护' . PHP_EOL;
+    // 部分媒体的广告同步不提供 project_id；无需查询项目或使用缺失键。
+    \App\Model\Mkt\MktAd::$rows = ['ad-no-project' => new \App\Model\Mkt\MktAd(['advertiser_id' => '8'])];
+    \App\Model\Mkt\MktProject::$rows = [
+        'project-foreign' => new \App\Model\Mkt\MktProject(['advertiser_id' => 'honor-adv'])
+    ];
+    MktAdvertiser::$rows['honor-adv'] = new MktAdvertiser(['advertiser_id' => 'honor-adv', 'platform' => 'honor']);
+    \App\Model\Mkt\MktProject::$findCalls = 0;
+    ensure($service->ad(['ad_id' => 'ad-no-project', 'advertiser_id' => '8']) === true, '缺少 project_id 时应允许保存广告');
+    ensure(\App\Model\Mkt\MktProject::$findCalls === 0, '缺少 project_id 时不得查询项目');
+    ensure($service->ad(['ad_id' => 'ad-no-project', 'advertiser_id' => '8', 'project_id' => null]) === true, 'null project_id 不应触发校验');
+    ensure(\App\Model\Mkt\MktProject::$findCalls === 0, 'null project_id 不得查询项目');
+    blocked(function () use ($service) {
+        $service->ad(['ad_id' => 'ad-no-project', 'advertiser_id' => '8', 'project_id' => 'project-foreign']);
+    }, '荣耀项目');
+    ensure(\App\Model\Mkt\MktProject::$findCalls === 1, '提供项目ID时必须验证项目归属');
+    echo '通过：广告 project_id 可选且荣耀归属仍受保护' . PHP_EOL;
+
     MktAdvertiser::$rows = [
         '1' => new MktAdvertiser(['advertiser_id' => '1', 'app_code' => 'demo', 'platform' => 'jl']),
         '2' => new MktAdvertiser(['advertiser_id' => '2', 'app_code' => 'demo', 'platform' => 'ks']),

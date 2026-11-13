@@ -1213,8 +1213,10 @@ class MktService
     {
         $model = MktAd::find($data['ad_id']);
         $this->assertHonorEntityOwner($model, $data['advertiser_id']);
-        $project = MktProject::find($data['project_id']);
-        $this->assertHonorEntityOwner($project, $data['advertiser_id']);
+        if (isset($data['project_id'])) {
+            $project = MktProject::find($data['project_id']);
+            $this->assertHonorEntityOwner($project, $data['advertiser_id']);
+        }
 
         if (!$model) {
             $model = new MktAd();

@@ -61,14 +61,15 @@ php artisan mkt:tx-tables 应用代码
 在 DataNexus 的 Android 应用广告效果监测链接组中，填写后台「监测地址」页生成的带宏 URL（宏在投放点击发生时由腾讯替换）。例如：
 
 ```text
-https://应用所属域名/v1/ad/tx/应用代码/?advertiser_id=__ACCOUNT_ID__&adgroup_id=__ADGROUP_ID__&campaign_id=__CAMPAIGN_ID__&creative_id=__AD_ID__&click_id=__CLICK_ID__&click_time=__CLICK_TIME__&muid=__MUID__&android_id=__HASH_ANDROID_ID__&oaid=__OAID__&ip=__IP__&user_agent=__USER_AGENT__
+https://应用所属域名/v1/ad/tx/应用代码/?advertiser_id=__ACCOUNT_ID__&adgroup_id=__ADGROUP_ID__&campaign_id=__CAMPAIGN_ID__&creative_id=__AD_ID__&click_id=__CLICK_ID__&click_time=__CLICK_TIME__&muid=__MUID__&android_id=__HASH_ANDROID_ID__&oaid=__OAID__&hash_oaid=__HASH_OAID__&promoted_object_id=__PROMOTED_OBJECT_ID__&callback_url=__CALLBACK__&device_os_type=__DEVICE_OS_TYPE__&ip=__IP__&user_agent=__USER_AGENT__
 ```
 
-`admin_server/config/autoload/ad.php` 负责生成上述监测参数，`advertiser_id` 等名称属于**本地接收字段**，右侧 `__...__` 才是腾讯宏。监测方案采用**非 Callback 的 OAuth + `user_actions/add`**，因此不拼接 `__CALLBACK__`，并在腾讯投放端选择「已有数据源上报」。确认 DataNexus 实际链接组支持这些宏后再启用投放。
+`admin_server/config/autoload/ad.php` 负责生成上述监测参数，`advertiser_id` 等名称属于**本地接收字段**，右侧 `__...__` 才是腾讯宏。监测方案继续使用**非 Callback 的 OAuth + `user_actions/add`**。DataNexus 当前校验要求监测链接含 `__HASH_OAID__`、`__PROMOTED_OBJECT_ID__`、`__CALLBACK__`、`__DEVICE_OS_TYPE__` 四个宏，因此将其一并下发；其中 `callback_url` 仅用于满足监测配置字段，本地点击归因及转化回传仍不使用该 URL 发请求。腾讯后台转化方式仍须选择与现有 `user_actions/add` 一致的配置，不得因为增加 Callback 宏而切换回传协议。确认 DataNexus 实际链接组支持这些宏后再启用投放。
 
 - `__OAID__` 下发 OAID 原值，用于本地设备归因，回传时只计算一次 MD5；外部如果已经传入 32 位哈希，则保持其值，避免二次 MD5。不要直接把 `__HASH_OAID__` 替换到上述 `oaid` 参数：本地按设备 OAID 原值匹配，会造成归因命中率下降。
 - `__HASH_ANDROID_ID__` 已是 MD5，点击接收和回传均不再重复哈希；本地设备归因仍以原始 Android ID 匹配其 MD5。
 - `__MUID__` 保留已有字段映射，兼容已上线历史点击与归因；当前存储以 `imei` 列承载该值是**历史兼容约定**，并不意味着 MUID 就是原始 IMEI，后续应另行评估明确的设备标识存储方案，不在本次修改点击表结构。
+- 新增的 `hash_oaid` 是独立的已哈希设备字段，不覆盖 `oaid` 原值，避免改变现有原值匹配规则。`promoted_object_id` 和 `device_os_type` 属于监测元数据，不作为新的入库必填字段；`callback_url` 不用于现有转化回传。
 - 腾讯后台必须真实下发 `click_id` 和 `click_time`，不得由服务端伪造。
 
 接收接口将 `advertiser_id → account_id`、`adgroup_id → aid`、`creative_id → cid`；保留 `click_id`，规范化点击时间和设备标识。账户须为已启用且绑定当前应用的腾讯广告主。成功应答 `{"ret":0,"msg":"OK"}`；缺表或非法参数不返回成功。

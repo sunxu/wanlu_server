@@ -256,14 +256,36 @@ namespace {
             'muid' => '__MUID__',
             'android_id' => '__HASH_ANDROID_ID__',
             'oaid' => '__OAID__',
+            'hash_oaid' => '__HASH_OAID__',
+            'promoted_object_id' => '__PROMOTED_OBJECT_ID__',
+            'callback_url' => '__CALLBACK__',
+            'device_os_type' => '__DEVICE_OS_TYPE__',
             'ip' => '__IP__',
             'user_agent' => '__USER_AGENT__',
         ];
         check($tx['params'] === $required, '腾讯点击参数与已确认宏必须一致');
-        check(!in_array('__CALLBACK__', $tx['params'], true), '非 Callback 模式不得混入 Callback 宏');
+        // DataNexus 验证器要求 CALLBACK 宏；当前转化服务仍使用独立 OAuth user_actions/add。
+        check($tx['params']['callback_url'] === '__CALLBACK__', '必须包含 DataNexus CALLBACK 下发宏');
         $query = urldecode(http_build_query($tx['params']));
         parse_str($query, $parsed);
         check($parsed['click_id'] === '__CLICK_ID__' && $parsed['oaid'] === '__OAID__', 'URL 编码不能破坏点击宏');
+        foreach (['hash_oaid', 'promoted_object_id', 'callback_url', 'device_os_type'] as $key) {
+            check($parsed[$key] === $required[$key], '腾讯要求的必填宏不可缺少：' . $key);
+        }
+    };
+    $tests['额外必填宏不改变非 Callback 转化链路'] = function () {
+        $params = [
+            'advertiser_id' => '123', 'adgroup_id' => '9',
+            'click_id' => 'macro-case', 'click_time' => (string)(time() - 10),
+            'oaid' => 'OAID-original', 'hash_oaid' => md5('OAID-original'),
+            'promoted_object_id' => 'promoted-1',
+            'device_os_type' => '0',
+            'callback_url' => 'https://api.e.qq.com/conv?cb=opaque-test',
+        ];
+        $row = \App\Services\Mkt\TencentClick::normalize($params);
+        check($row['oaid'] === 'OAID-original', 'HASH_OAID 宏不能覆盖原 OAID 归因');
+        check($row['callback_url'] === '', '非 Callback 转化流程不能存储/使用腾讯签名回调地址');
+        check($row['click_id'] === 'macro-case' && $row['account_id'] === '123', '额外宏不能破坏点击归一化');
     };
     $tests['腾讯 OAID 原值和 MD5 不重复哈希'] = function () {
         $base = ['advertiser_id' => '123', 'adgroup_id' => '9', 'click_id' => 'oaid-case', 'click_time' => (string)(time() - 10)];
