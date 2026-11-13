@@ -61,8 +61,10 @@ php artisan mkt:tx-tables 应用代码
 在 DataNexus 的 Android 应用广告效果监测链接组中，填写后台「监测地址」页生成的带宏 URL（宏在投放点击发生时由腾讯替换）。例如：
 
 ```text
-https://应用所属域名/v1/ad/tx/应用代码/?advertiser_id=__ACCOUNT_ID__&adgroup_id=__ADGROUP_ID__&campaign_id=__CAMPAIGN_ID__&creative_id=__AD_ID__&click_id=__CLICK_ID__&click_time=__CLICK_TIME__&muid=__MUID__&android_id=__HASH_ANDROID_ID__&oaid=__OAID__&hash_oaid=__HASH_OAID__&promoted_object_id=__PROMOTED_OBJECT_ID__&callback_url=__CALLBACK__&device_os_type=__DEVICE_OS_TYPE__&ip=__IP__&user_agent=__USER_AGENT__
+https://应用所属域名/v1/ad/tx/应用代码?advertiser_id=__ACCOUNT_ID__&adgroup_id=__ADGROUP_ID__&campaign_id=__CAMPAIGN_ID__&creative_id=__AD_ID__&click_id=__CLICK_ID__&click_time=__CLICK_TIME__&muid=__MUID__&android_id=__HASH_ANDROID_ID__&oaid=__OAID__&hash_oaid=__HASH_OAID__&promoted_object_id=__PROMOTED_OBJECT_ID__&callback_url=__CALLBACK__&device_os_type=__DEVICE_OS_TYPE__&ip=__IP__&user_agent=__USER_AGENT__
 ```
+
+**线上排查结论（2026-11-13）：** 带尾斜杠的 `/v1/ad/tx/bxllzs/` 在服务器返回 HTTP 301，而无尾斜杠 `/v1/ad/tx/bxllzs` 携带无效测试参数时直接返回 HTTP 400、无跳转。因此监测地址必须使用无尾斜杠形式；301 虽保留 Query String，但测试广告客户端可能不跟随重定向。配置更新后须重新下发真实点击并检查 `app_bxllzs_tx` 入库，不能仅凭腾讯后台“联调成功”判断业务入库成功。
 
 `admin_server/config/autoload/ad.php` 负责生成上述监测参数，`advertiser_id` 等名称属于**本地接收字段**，右侧 `__...__` 才是腾讯宏。监测方案继续使用**非 Callback 的 OAuth + `user_actions/add`**。DataNexus 当前校验要求监测链接含 `__HASH_OAID__`、`__PROMOTED_OBJECT_ID__`、`__CALLBACK__`、`__DEVICE_OS_TYPE__` 四个宏，因此将其一并下发；其中 `callback_url` 仅用于满足监测配置字段，本地点击归因及转化回传仍不使用该 URL 发请求。腾讯后台转化方式仍须选择与现有 `user_actions/add` 一致的配置，不得因为增加 Callback 宏而切换回传协议。确认 DataNexus 实际链接组支持这些宏后再启用投放。
 
