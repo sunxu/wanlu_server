@@ -110,6 +110,12 @@ SHOW INDEX FROM app_lzgjf_tx;
 
 `app_lzgjf_tx.callback_url` 需能完整存储实际 `__CALLBACK__`（目前代码验证上限2048字节，实际库字段要匹配），并需要检查真实点击是否保存合法的 Callback URL。联调前先用实际点击样本核实 Tencent Callback URL 的域名、协议和参数与当前允许列表吻合；不要用伪造 URL 作生产写入或回传验证。若还未确认账户绑定及官方 Callback URL，则继续保持 `TX_DATANEXUS_CALLBACK_APPS` 关闭。
 
+### 腾讯 advertiser/get 必填分页参数（2026-11-14 联调修正）
+
+腾讯实际返回 `code=132100`，明确提示 `pagination_mode` 和 `page_size` 为必填参数。即使查询单个广告账户，也应附带 `pagination_mode=PAGINATION_MODE_NORMAL`、`page=1`、`page_size=100`。私有账户探测此前删去这些字段导致请求在参数校验阶段失败，现已恢复。该探测仍只读取指定 `account_id` 与 `fields=["account_id"]`，无数据库写入或 Token 刷新。
+
+**排查顺序**：先解决 132100 参数错误，再看真实账户权限。如果继续出现 `12201`，才核查当前 Token 对该广告账户的授权身份，不能把两个不同 `account_id` 的结果混为一谈。原始日志在显式启用时仍可用。
+
 ### 腾讯广告主权限联调：原始 HTTP 调试日志
 
 仅在需要定位 `TX_ACCOUNT_PROBE_REMOTE_ADVERTISER_GET_FAILED` 时，**单次明确开启**私有账户只读探测日志（不开启其他接口日志）：
