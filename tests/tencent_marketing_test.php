@@ -397,7 +397,7 @@ namespace {
         }
     };
     $tests['按 App 读取独立 Token 并使用真正 DataNexus Callback'] = function () {
-        putenv('TX_DATANEXUS_CALLBACK_APPS=demo');
+        putenv('TX_DATANEXUS_CALLBACK_APPS=irrelevant_app'); // 环境变量不得改变 URL 自动路由
         $service = new class extends \App\Services\Mkt\TencentService {
             public $sent = [];
             protected function requestCallback(string $url, array $payload, string $accessToken): array {
@@ -440,7 +440,7 @@ namespace {
     };
 
     $tests['无鉴权 HTTP Callback 使用真实点击 URL 和稳定激活数据'] = function () {
-        putenv('TX_DATANEXUS_CALLBACK_APPS=demo');
+        putenv('TX_DATANEXUS_CALLBACK_APPS=irrelevant_app'); // 环境变量不得改变 URL 自动路由
         $service = new class extends \App\Services\Mkt\TencentService {
             public $sent = [];
             public $reply = ['code' => 0, 'trace_id' => 'safe_trace_1'];
@@ -524,6 +524,75 @@ namespace {
         }
         check(count($service->captures) === 1, '无效 URL 不得触发网络传输');
     };
+    $tests['无灰度环境变量按 URL 自动分派并仅在无 URL 时走旧接口'] = function () {
+        putenv('TX_DATANEXUS_CALLBACK_APPS');
+        $service = new class extends \App\Services\Mkt\TencentService {
+            public $calls = [];
+            protected function legacyCallback(string $event, int $time, array $params): bool {
+                $this->calls[] = 'LEGACY';
+                return true;
+            }
+            protected function datanexusCallback(string $event, int $time, array $params): bool {
+                $this->calls[] = 'DATANEXUS';
+                return true;
+            }
+        };
+        $base = ['app_code' => 'new_app', 'account_id' => '123', 'click_id' => 'trace', 'oaid' => 'raw'];
+        $when = time() - 3;
+        check($service->callback('activate', $when, $base) === true, '无 callback_url 必须兼容旧接口');
+        check($service->callback('activate', $when, $base + ['callback_url' => '']) === true,
+            '空字符串 callback_url 必须兼容旧接口');
+        check($service->callback('activate', $when, $base + ['callback_url' => null]) === true,
+            'NULL callback_url 必须兼容旧接口');
+        $http = 'http://tracking.e.qq.com/conv?cb=raw%2Bopaque&conv_id=97228665';
+        $https = 'https://api.e.qq.com/conv?cb=raw%2Bopaque&conv_id=97228665';
+        $httpsAdd = 'https://api.e.qq.com/v3.0/user_actions/add?cb=raw%2Bopaque&conv_id=97228665';
+        foreach ([$http, $https, $httpsAdd] as $url) {
+            check($service->callback('activate', $when, $base + ['callback_url' => $url]) === true,
+                '合法 Callback URL 必须自动路由，不能依赖灰度配置');
+        }
+        check($service->calls === [
+            'LEGACY', 'LEGACY', 'LEGACY', 'DATANEXUS', 'DATANEXUS', 'DATANEXUS',
+        ], '未配置灰度开关时自动路由分派错误');
+    };
+
+    $tests['非法非空 Callback 拒绝且不能静默降级旧行为源'] = function () {
+        putenv('TX_DATANEXUS_CALLBACK_APPS');
+        $service = new class extends \App\Services\Mkt\TencentService {
+            public $legacyCount = 0;
+            public $callbackCount = 0;
+            protected function legacyCallback(string $event, int $time, array $params): bool {
+                $this->legacyCount++;
+                return true;
+            }
+            protected function datanexusCallback(string $event, int $time, array $params): bool {
+                $this->callbackCount++;
+                return true;
+            }
+        };
+        $base = ['app_code' => 'demo', 'account_id' => '123', 'click_id' => 'safe-click'];
+        $invalid = [
+            ' ', '0', 0, false, ['unexpected'], ['url' => 'http://tracking.e.qq.com/conv'],
+            'http://evil.example/conv?cb=opaque&conv_id=123',
+            'http://tracking.e.qq.com:8080/conv?cb=opaque&conv_id=123',
+            'https://api.e.qq.com@evil.example/conv?cb=opaque&conv_id=123',
+            'https://api.e.qq.com/conv?cb=opaque',
+            'http://tracking.e.qq.com/conv?conv_id=123',
+            'ftp://tracking.e.qq.com/conv?cb=opaque&conv_id=123',
+            'http://tracking.e.qq.com/conv?cb=opaque&conv_id=123#fragment',
+            'https://api.e.qq.com/other?cb=opaque&conv_id=123',
+        ];
+        foreach ($invalid as $url) {
+            $params = $base;
+            $params['callback_url'] = $url;
+            rejects(function () use ($service, $params) {
+                $service->callback('activate', time() - 3, $params);
+            }, '非空非法 Callback 绝对不能回退 Legacy 或访问网络');
+        }
+        check($service->legacyCount === 0 && $service->callbackCount === 0,
+            '非法 Callback 不能绕过白名单进入任何回传分支');
+    };
+
     $tests['平台来源与荣耀隔离'] = function () {
         check(\App\Constants\AdConst::PUT_SOURCE_MAP['tx'] === 8 && \App\Constants\AdConst::PUT_SOURCE_MAP['honor'] === 7, '平台来源冲突');
         check(\App\Constants\MktConst::PLATFORM_SOURCE['tx'] === 8, '两端来源未对齐');
