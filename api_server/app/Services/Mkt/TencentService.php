@@ -171,6 +171,7 @@ class TencentService
 
     protected function makeAction(string $event, int $time, array $params, array $extra): array
     {
+        $accountId = (string)($params['account_id'] ?? '');
         $clickId = (string)($params['click_id'] ?? '');
         if ($clickId === '' || strlen($clickId) > 64 || $time <= 0 || $time > 2147483647) {
             throw new Exception('腾讯 Callback 缺少有效点击标识或事件时间');
