@@ -6,7 +6,7 @@ use InvalidArgumentException;
 
 /**
  * DataNexus 的 __CALLBACK__ 是腾讯下发的完整 URL，不允许任意 URL 携带 Token。
- * 点击阶段兼容旧的 tracking.e.qq.com HTTP；仅 api.e.qq.com HTTPS 可鉴权 POST。
+ * HTTP tracking.e.qq.com/conv 只允许无 Token POST；仅 api.e.qq.com HTTPS 可鉴权 POST。
  */
 final class TencentCallbackUrl
 {
@@ -33,6 +33,20 @@ final class TencentCallbackUrl
             || !is_string($query['conv_id'] ?? null) || $query['conv_id'] === '') {
             throw new InvalidArgumentException('腾讯 Callback URL 缺少必要参数');
         }
+    }
+
+
+    /**
+     * 未开启鉴权时腾讯下发的唯一 HTTP POST 目标。
+     * 只返回目标类型，不访问 URL；严禁携带 access-token。
+     */
+    public static function isUnauthenticatedPostTarget(string $url): bool
+    {
+        self::assertClickTarget($url);
+        $parts = parse_url($url);
+        return strtolower((string)$parts['scheme']) === 'http'
+            && strtolower((string)$parts['host']) === 'tracking.e.qq.com'
+            && (string)$parts['path'] === '/conv';
     }
 
     public static function assertPostTarget(string $url): void

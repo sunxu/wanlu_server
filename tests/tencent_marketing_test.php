@@ -438,6 +438,92 @@ namespace {
         \DB::$rows = [];
         putenv('TX_DATANEXUS_CALLBACK_APPS');
     };
+
+    $tests['无鉴权 HTTP Callback 使用真实点击 URL 和稳定激活数据'] = function () {
+        putenv('TX_DATANEXUS_CALLBACK_APPS=demo');
+        $service = new class extends \App\Services\Mkt\TencentService {
+            public $sent = [];
+            public $reply = ['code' => 0, 'trace_id' => 'safe_trace_1'];
+            protected function requestUnauthenticatedCallback(string $url, array $payload): array {
+                $this->sent[] = [$url, $payload];
+                return $this->reply;
+            }
+        };
+        \DB::$rows = ['mkt_advertiser as a' => (object)['extra' => '{}']];
+        \DB::$row = null;
+        \DB::$whereCalls = [];
+        $params = [
+            'account_id' => '95833136', 'app_code' => 'demo',
+            'click_id' => 'g467q2rdaaaihuj7rxaq', 'oaid' => '1779f882-367e-44d4-90d4-dd3ec6810015',
+            'callback_url' => 'http://tracking.e.qq.com/conv?cb=opaque%2Bcallback%3D&conv_id=97228665',
+        ];
+        $when = 1794654992;
+        check($service->callback('activate', $when, $params) === true,
+            'HTTP Callback 的有效 code=0 必须判为成功');
+        check($service->sent[0][0] === $params['callback_url'],
+            '必须原样使用点击下发的 URL，不得改写 cb 或 conv_id');
+        $action = $service->sent[0][1]['actions'][0];
+        check($action['action_type'] === 'ACTIVATE_APP'
+            && $action['action_time'] === $when
+            && $action['user_id']['hash_oaid'] === md5($params['oaid'])
+            && $action['trace']['click_id'] === $params['click_id'],
+            'HTTP Callback 事件及 OAID 映射必须与原有协议一致');
+        check(array_keys($service->sent[0][1]) === ['actions'],
+            'HTTP Callback 不需要 user_action_set_id 或 account_id');
+        check($service->callback('activate', $when, $params) === true
+            && $service->sent[0][1] === $service->sent[1][1],
+            '重试必须保持 outer_action_id 与整个事件数据不变');
+        check(strlen($action['outer_action_id']) < 255, '幂等标识超长');
+        check(!array_filter(\DB::$whereCalls, function ($query) {
+            return $query[0] === 'mkt_user as c';
+        }), 'HTTP 无鉴权模式禁止读取私有 Token');
+        $service->reply = ['code' => 12201, 'trace_id' => 'safe_trace_2'];
+        check($service->callback('activate', $when, $params) === false,
+            'HTTP Callback 非零业务码不得判成功');
+        $params['callback_url'] = 'https://evil.test/conv?cb=opaque&conv_id=97228665';
+        rejects(function () use ($service, $when, $params) {
+            $service->callback('activate', $when, $params);
+        }, '恶意 Callback 必须在请求前阻止');
+        check(count($service->sent) === 3, '恶意 URL 不得触发真实 Callback');
+        \DB::$rows = [];
+        putenv('TX_DATANEXUS_CALLBACK_APPS');
+    };
+    $tests['HTTP Callback 传输不含 Token 且限制协议和重定向'] = function () {
+        $service = new class extends \App\Services\Mkt\TencentService {
+            public $captures = [];
+            public function simulate(string $url): array {
+                return $this->requestUnauthenticatedCallback($url, ['actions' => [['action_type' => 'ACTIVATE_APP']]]);
+            }
+            protected function sendCallbackHttp(string $url, array $payload, array $headers, int $protocol): array {
+                $this->captures[] = compact('url', 'payload', 'headers', 'protocol');
+                return ['code' => 0];
+            }
+        };
+        $good = 'http://tracking.e.qq.com/conv?cb=x%252By&conv_id=97228665';
+        check($service->simulate($good)['code'] === 0, '无鉴权 Callback 应支持合法 HTTP URL');
+        check($service->captures[0]['url'] === $good
+            && $service->captures[0]['protocol'] === CURLPROTO_HTTP,
+            'HTTP Callback 必须仅允许 HTTP 协议');
+        $headerLine = implode(' | ', $service->captures[0]['headers']);
+        check(strpos($headerLine, 'Content-Type: application/json') !== false
+            && strpos($headerLine, 'cache-control: no-cache') !== false
+            && stripos($headerLine, 'token') === false
+            && stripos($headerLine, 'Authorization') === false
+            && stripos($headerLine, 'nonce') === false,
+            '无鉴权 HTTP 传输不能携带任何凭证 Header');
+        foreach ([
+            'https://api.e.qq.com/conv?cb=x&conv_id=97228665',
+            'http://tracking.e.qq.com.evil.test/conv?cb=x&conv_id=97228665',
+            'http://tracking.e.qq.com@evil.test/conv?cb=x&conv_id=97228665',
+            'http://tracking.e.qq.com:8080/conv?cb=x&conv_id=97228665',
+            'http://tracking.e.qq.com/other?cb=x&conv_id=97228665',
+            'http://tracking.e.qq.com/conv?cb=x',
+        ] as $invalid) {
+            rejects(function () use ($service, $invalid) { $service->simulate($invalid); },
+                'HTTP Callback 必须拒绝未授权的目标与缺少参数的 URL');
+        }
+        check(count($service->captures) === 1, '无效 URL 不得触发网络传输');
+    };
     $tests['平台来源与荣耀隔离'] = function () {
         check(\App\Constants\AdConst::PUT_SOURCE_MAP['tx'] === 8 && \App\Constants\AdConst::PUT_SOURCE_MAP['honor'] === 7, '平台来源冲突');
         check(\App\Constants\MktConst::PLATFORM_SOURCE['tx'] === 8, '两端来源未对齐');

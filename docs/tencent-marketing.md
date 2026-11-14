@@ -194,22 +194,32 @@ php bin/hyperf.php mkt:txPrivatePreflight lzgjf
 
 **实际验收（2026-11-14）**：`--apply` 返回 `TX_BIND_APPLIED`、`created_account=true`、`created_advertiser=true`；其后 `mkt:txPrivatePreflight lzgjf` 所有 `checks=true`，`enabled_count=1`、`valid_account_count=1`，状态 `LOCAL_PREFLIGHT_PASS__EXTERNAL_INTEGRATION_HOLD`。预检仅证明本地绑定、令牌时限及本进程定时任务开关；真实转化前仍需验证点击 `callback_url`、DataNexus 用户行为上报权限与 API Server Callback 开关。上述命令不自动开启灰度。完整步骤与回执见 [绑定操作手册](./tencent-private-account-binding.md)。
 
-### Callback 灰度开关、前置条件与回滚
+### Callback 双模式灰度、排障与回滚（2026-11-14）
 
-在 `api_server` 进程环境中配置 `TX_DATANEXUS_CALLBACK_APPS=bxllzs,lzgjf`（仅写入准备启用的 App，默认空）；启动或重启进程以加载配置。
+在 `api_server` 运行时通过 `TX_DATANEXUS_CALLBACK_APPS` 显式启用指定业务 App 的 Callback，默认空。**代码合并不自动启用任何 App，也不会自动补发历史失败转化。** 仅经核验后为本次 App 配置 `TX_DATANEXUS_CALLBACK_APPS=lzgjf` 并重启实际消费 `{notify_ad_active}` 的 API 队列进程（HTTP 入口及其它进程也要核对是否读取了相同配置）。
 
-必须先确认：
-1. `uc.mkt_advertiser` 已登记真实腾讯广告主、`app_code` 匹配且 `status=1`，关联的真实 `mkt_account` 已存在且 `is_valid=1`，不可伪造 OAuth 用户。
-2. 对应 App 的私有凭证已导入并经过腾讯侧实际权限验证，过期时间可信且自动刷新可用。
-3. DataNexus 「广告效果监测」已为该链路**开启鉴权**；下发的 `__CALLBACK__` 经过 Query String 解码后应是合法的 `https://api.e.qq.com/conv?cb=...&conv_id=...` 或官方相容的 `/v3.0/user_actions/add` URL。
-4. 实际业务库 `app_{app_code}_tx.callback_url` 可容纳最长 **2048 字节**；如容量不足先扩容已有列（不要截断），检查点击唯一索引及并发重复插入。
-5. 监测 URL **无尾斜杠**，真实点击不返回 301；归因事件包含可靠 `click_id` 和实际事件时间。
+回传选择取决于点击**原样保存**的 `callback_url`，仅在明确灰度 App 内有效：
 
-灰度新链路从 `app_code` 自动计算私有 `mkt_user.user_id`，使用该 Token 以 POST 上报 `actions`，Header 携带 `access-token`、`timestamp`、`nonce`。仅允许腾讯 HTTPS URL，校验证书，不跟随重定向；禁止将敏感 Header 发往非腾讯或 HTTP 目标。旧 `http://tracking.e.qq.com/conv` 仅允许作为历史点击记录，不能进行新鉴权上报。
+| 点击下发的 `__CALLBACK__` | 回传方式 | Token 和权限 |
+| --- | --- | --- |
+| `http://tracking.e.qq.com/conv?cb=...&conv_id=...` | POST `{"actions":[...]}`，不跟随重定向 | **不读取、不携带 Token**，但仍核验广告主 App 归属与启用状态 |
+| `https://api.e.qq.com/conv?cb=...&conv_id=...`（或腾讯允许的 `/v3.0/user_actions/add` 路径） | POST `{"actions":[...]}`，强制 HTTPS/TLS 验证 | 从当前 App 私有 `txapp_` 记录读取有效 Token，以 Header 提交 `access-token`、`timestamp` 和 `nonce` |
+| 空、非法、非腾讯或其他 URL | **拒绝**（灰度内不回退为旧链路） | 不允许向第三方发送任何凭证 |
 
-POST 成功判定为 HTTP 200 且 `code=0`；保留现有 `NotifyAdActiveJob` 的 `active_status` 成功标记、失败计数与重试。重试使用稳定的 `outer_action_id`，不生成第二次转化。响应日志仅记录错误码和 trace_id，不记录 Token、URL 查询串和设备标识。
+未进入灰度的 App 保持原先独立 `user_actions/add` 行为源上报方式；其 `mkt_advertiser.extra.user_action_set_id` 仍按原接口要求配置，不会因为此修复被自动改动。HTTP/HTTPS Callback 自归因不需要此字段，依据真实点击 `cb` 与 `conv_id` 归因。
 
-**回滚**：清空/移除 `TX_DATANEXUS_CALLBACK_APPS` 并重启 `api_server` 即恢复旧的非 Callback 路由；但如果 DataNexus 后台已经改为 Callback 鉴权，需要同时恢复匹配的后台上报设置，避免协议不一致。已有状态/点击数据不会自动更改。
+安全校验包括：账户与 App 绑定、`cb`/`conv_id` 非空、完整合法 URL、允许的协议/主机/路径、无用户信息/自定义端口/fragment、2048 字节限制；请求禁用重定向，HTTP 仅允许 `CURLPROTO_HTTP`，HTTPS 仅允许 `CURLPROTO_HTTPS`；HTTP 绝不发送 Token 或鉴权 Header。请求体和设备标识禁止写入日志，日志只记灰度 App、方式、错误码、HTTP 状态、允许字符集的 trace_id 与固定原因类别，不记录完整 Callback、`cb`、Token 或任意异常消息。
+
+**本次联调实证**：`lzgjf` 账户 `95833136`，转化 `97228665`，设备 `16141` OAID 归因与激活成功，点击表 `nls.app_lzgjf_tx.id=3` 为 `active_status=1`、`active_times=5`，但其 URL 是 `http://tracking.e.qq.com/conv`。旧代码未启用灰度时误走要求 `user_action_set_id` 的另一条接口，导致无行为源参数且没有日志；此改动提供安全的无鉴权 HTTP Callback 路径。**不得据此宣称腾讯已收到激活。**
+
+安全上线顺序：
+1. 合并经过 CI 的代码、独立部署；只读确认点击表 `id=3` 的状态与 URL 类型，不输出完整 `cb`。
+2. 明确决定是否启用 `lzgjf` 灰度，先检查后台当前 `__CALLBACK__` 仍下发何种协议、真实账户归属和 Token 状态；若未明确授权真实转化，不开启。
+3. 在隔离测试中核对 POST 请求体、固定 `outer_action_id`、失败路径、Token Header 分离；如需线上联调，在经确认后用**新点击及新激活**生成全新的转换事件，查 `腾讯 DataNexus Callback` 的 `code=0`、`trace_id` 和 `active_status=2` 并与腾讯后台核对。
+4. **不得直接把 `id=3` 的 `active_status` 改为 2，也不得手工修改 Callback URL、任意重放历史转化**；第 3 条可能已有排队中的重试，需要启用前检查/隔离。
+5. 错误分类：`腾讯 Callback 预检失败` 记录不含敏感数据的 `reason_code`；`腾讯 DataNexus Callback` 记录 `mode`、`http_status`、`code`、`reason_code` 与 `trace_id`。HTTP 200 且 `code=0` 才会在应用层认定成功，`NotifyAdActiveJob` 保留原有失败计数与重试约束。
+
+**回滚**：从运行时环境移除 `lzgjf` 的 `TX_DATANEXUS_CALLBACK_APPS` 后重启相关进程，回退为原有独立行为源接口逻辑；若腾讯后台已切换鉴权，则还须使后台模式与请求路径一致。此操作不修改点击/归因/激活历史记录。
 
 官方协议：[DataNexus APP 转化数据 API 自归因](https://datanexus.qq.com/doc/develop/guider/interface/conversion/trackingcgi_api_app)。
 

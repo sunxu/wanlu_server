@@ -13,10 +13,19 @@ class TencentService
     public function callback(string $event, int $time, array $params): bool
     {
         $appCode = (string)($params['app_code'] ?? '');
-        if ($this->callbackEnabled($appCode)) {
-            return $this->privateCallback($event, $time, $params);
+        if (!$this->callbackEnabled($appCode)) {
+            return $this->legacyCallback($event, $time, $params);
         }
-        return $this->legacyCallback($event, $time, $params);
+        try {
+            return $this->privateCallback($event, $time, $params);
+        } catch (\Throwable $e) {
+            // 日志只保留固定分类；禁止记录 cb、Token、设备标识或任意异常消息。
+            Log::info('腾讯 Callback 预检失败', [
+                'app_code' => $appCode,
+                'reason_code' => $this->callbackFailureCode($e),
+            ]);
+            throw $e;
+        }
     }
 
     protected function callbackEnabled(string $appCode): bool
@@ -36,15 +45,25 @@ class TencentService
         return 'txapp_' . sha1($appCode);
     }
 
+    /**
+     * 仅显式灰度 App 使用点击下发的 __CALLBACK__。
+     * HTTP tracking 关闭鉴权时不读取、不发送 Token；HTTPS api.e.qq.com 才取私有 Token。
+     */
     protected function privateCallback(string $event, int $time, array $params): bool
     {
         $appCode = (string)($params['app_code'] ?? '');
         $accountId = (string)($params['account_id'] ?? '');
-        $credentialId = self::privateCredentialId($appCode);
         if (!ctype_digit($accountId) || $accountId === '0') {
             throw new Exception('腾讯广告主 ID 无效');
         }
-        // 第一次查询仅验证账户及广告主绑定。不能沿 mkt_account.user_id 读取 Token。
+
+        $callbackUrl = (string)($params['callback_url'] ?? '');
+        $unauthenticated = TencentCallbackUrl::isUnauthenticatedPostTarget($callbackUrl);
+        if (!$unauthenticated) {
+            TencentCallbackUrl::assertPostTarget($callbackUrl);
+        }
+
+        // 两种 Callback 均必须验证实际广告主归属；不能通过任意点击 URL 绕过业务绑定。
         $account = DB::connection('uc')->table('mkt_advertiser as a')
             ->join('mkt_account as b', 'b.account_id', '=', 'a.account_id')
             ->where('a.advertiser_id', $accountId)
@@ -56,46 +75,91 @@ class TencentService
         if (!$account) {
             throw new Exception('腾讯广告主与业务 App 未绑定或账户无效');
         }
-        $credential = DB::connection('uc')->table('mkt_user as c')
-            ->join('mkt_app as d', 'd.app_id', '=', 'c.app_id')
-            ->where('c.user_id', $credentialId)->where('d.platform', AdConst::PUT_SOURCE_TX)
-            ->first(['c.access_token', 'c.access_time']);
-        $credential = is_object($credential) ? (array)$credential : (is_array($credential) ? $credential : []);
-        if (empty($credential['access_token']) || (int)($credential['access_time'] ?? 0) <= time() + 60) {
-            throw new Exception('腾讯私有应用 Token 缺失或即将过期');
-        }
-        $callbackUrl = (string)($params['callback_url'] ?? '');
-        TencentCallbackUrl::assertPostTarget($callbackUrl);
+
         $extra = $account['extra'] ?? [];
         if (is_string($extra)) {
             $extra = json_decode($extra, true);
         }
         $payload = $this->callbackPayload($event, $time, $params, is_array($extra) ? $extra : []);
-        $response = $this->requestCallback($callbackUrl, $payload, $credential['access_token']);
+
+        if ($unauthenticated) {
+            $response = $this->requestUnauthenticatedCallback($callbackUrl, $payload);
+        } else {
+            $credentialId = self::privateCredentialId($appCode);
+            $credential = DB::connection('uc')->table('mkt_user as c')
+                ->join('mkt_app as d', 'd.app_id', '=', 'c.app_id')
+                ->where('c.user_id', $credentialId)->where('d.platform', AdConst::PUT_SOURCE_TX)
+                ->first(['c.access_token', 'c.access_time']);
+            $credential = is_object($credential) ? (array)$credential : (is_array($credential) ? $credential : []);
+            if (empty($credential['access_token']) || (int)($credential['access_time'] ?? 0) <= time() + 60) {
+                throw new Exception('腾讯私有应用 Token 缺失或即将过期');
+            }
+            $response = $this->requestCallback($callbackUrl, $payload, $credential['access_token']);
+        }
+
+        $code = $response['code'] ?? -1;
+        $code = (is_int($code) || (is_string($code) && ctype_digit($code))) ? (int)$code : -1;
+        $traceId = $response['trace_id'] ?? null;
+        $traceId = is_string($traceId) && preg_match('/^[a-zA-Z0-9_\\-]{1,128}$/D', $traceId) ? $traceId : null;
+        $reason = $response['_reason_code'] ?? '';
+        if (!is_string($reason) || !in_array($reason, [
+            'CURL_INIT_FAILED', 'TRANSPORT_FAILED', 'HTTP_NON_200', 'INVALID_JSON',
+        ], true)) {
+            $reason = $code === 0 ? 'SUCCESS' : 'API_REJECTED';
+        }
         Log::info('腾讯 DataNexus Callback', [
-            'app_code' => $appCode, 'advertiser_id' => $accountId,
-            'code' => $response['code'] ?? -1, 'trace_id' => $response['trace_id'] ?? null,
+            'app_code' => $appCode,
+            'mode' => $unauthenticated ? 'HTTP_NO_AUTH' : 'HTTPS_AUTH',
+            'code' => $code,
+            'trace_id' => $traceId,
+            'http_status' => (int)($response['_http_status'] ?? 0),
+            'reason_code' => $reason,
         ]);
-        return (int)($response['code'] ?? -1) === 0;
+        return $code === 0;
+    }
+
+    protected function requestUnauthenticatedCallback(string $url, array $payload): array
+    {
+        if (!TencentCallbackUrl::isUnauthenticatedPostTarget($url)) {
+            throw new Exception('腾讯无鉴权 Callback 目标无效');
+        }
+        // 不能向 HTTP 添加 access-token、Authorization、cookie 或私有凭证。
+        return $this->sendCallbackHttp($url, $payload, [
+            'Content-Type: application/json',
+            'cache-control: no-cache',
+        ], CURLPROTO_HTTP);
     }
 
     protected function requestCallback(string $url, array $payload, string $accessToken): array
     {
         TencentCallbackUrl::assertPostTarget($url);
+        return $this->sendCallbackHttp($url, $payload, [
+            'Content-Type: application/json',
+            'access-token: ' . $accessToken,
+            'timestamp: ' . time(),
+            'nonce: ' . bin2hex(random_bytes(16)),
+            'cache-control: no-cache',
+        ], CURLPROTO_HTTPS);
+    }
+
+    /**
+     * 只有两个经过严格白名单校验的调用方；协议与 Header 各自隔离。
+     * 受保护方法允许无网络的隔离测试检查实际 Header 和 cURL 协议。
+     */
+    protected function sendCallbackHttp(string $url, array $payload, array $headers, int $protocol): array
+    {
+        $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($body) || strlen($body) > 50 * 1024) {
+            throw new Exception('腾讯 Callback 请求体无效或超过 50KB');
+        }
         $handle = curl_init($url);
         if ($handle === false) {
-            return [];
+            return ['_reason_code' => 'CURL_INIT_FAILED'];
         }
         curl_setopt_array($handle, [
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'access-token: ' . $accessToken,
-                'timestamp: ' . time(),
-                'nonce: ' . bin2hex(random_bytes(16)),
-                'cache-control: no-cache',
-            ],
+            CURLOPT_POSTFIELDS => $body,
+            CURLOPT_HTTPHEADER => $headers,
             CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_TIMEOUT => 15,
             CURLOPT_RETURNTRANSFER => true,
@@ -103,16 +167,43 @@ class TencentService
             CURLOPT_MAXREDIRS => 0,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_PROTOCOLS => $protocol,
+            CURLOPT_REDIR_PROTOCOLS => 0,
         ]);
         $raw = curl_exec($handle);
-        $httpCode = curl_getinfo($handle, CURLINFO_HTTP_CODE);
+        $httpCode = (int)curl_getinfo($handle, CURLINFO_HTTP_CODE);
+        $curlErrno = curl_errno($handle);
         curl_close($handle);
-        if ($raw === false || (int)$httpCode !== 200) {
-            return [];
+        if ($raw === false) {
+            return ['_reason_code' => 'TRANSPORT_FAILED', '_http_status' => $httpCode,
+                '_curl_errno' => $curlErrno];
+        }
+        if ($httpCode !== 200) {
+            return ['_reason_code' => 'HTTP_NON_200', '_http_status' => $httpCode];
         }
         $data = json_decode($raw, true);
-        return is_array($data) ? $data : [];
+        if (!is_array($data)) {
+            return ['_reason_code' => 'INVALID_JSON', '_http_status' => $httpCode];
+        }
+        $data['_http_status'] = $httpCode;
+        return $data;
+    }
+
+    private function callbackFailureCode(\Throwable $error): string
+    {
+        if ($error instanceof \InvalidArgumentException) {
+            return 'INVALID_CALLBACK_URL';
+        }
+        $known = [
+            '腾讯广告主 ID 无效' => 'INVALID_ADVERTISER_ID',
+            '腾讯广告主与业务 App 未绑定或账户无效' => 'ADVERTISER_UNBOUND',
+            '腾讯私有应用 Token 缺失或即将过期' => 'TOKEN_INVALID',
+            '腾讯 Callback 缺少有效点击标识或事件时间' => 'INVALID_CLICK_OR_TIME',
+            '腾讯 APP 回传缺少设备标识' => 'MISSING_DEVICE_ID',
+            '腾讯回传设备标识格式错误' => 'INVALID_DEVICE_ID',
+            '腾讯 Callback 请求体无效或超过 50KB' => 'INVALID_PAYLOAD_SIZE',
+        ];
+        return $known[$error->getMessage()] ?? 'CALLBACK_PRECHECK_FAILED';
     }
 
     protected function legacyCallback(string $event, int $time, array $params): bool
