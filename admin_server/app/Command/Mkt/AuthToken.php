@@ -54,18 +54,19 @@ class AuthToken extends HyperfCommand
 
         // 腾讯私有 Token 的 Access/Refresh 可能同一天过期。
         // 在到期前24小时触发刷新，留出队列和 Tencent API 故障恢复余量。
-        $privateByAccess = $this->getMode()
-            ->when(!empty($value), function ($query) use ($value) {
-                return $query->where($this->key, $value);
-            })
-            ->where('user_id', 'like', 'txapp\\_%')
+        $accessModel = $this->getMode();
+        $refreshModel = $this->getMode();
+        if (!empty($value)) {
+            $accessModel->where($this->key, $value);
+            $refreshModel->where($this->key, $value);
+        }
+        // LIKE is only a broad pre-filter. mergeCandidates verifies the full ID.
+        $privateByAccess = $accessModel
+            ->where('user_id', 'like', 'txapp_%')
             ->where('access_time', '<', $now + TencentPrivateRefreshWindow::PRIVATE_LEAD_SECONDS)
             ->pluck($this->key)->toArray();
-        $privateByRefresh = $this->getMode()
-            ->when(!empty($value), function ($query) use ($value) {
-                return $query->where($this->key, $value);
-            })
-            ->where('user_id', 'like', 'txapp\\_%')
+        $privateByRefresh = $refreshModel
+            ->where('user_id', 'like', 'txapp_%')
             ->where('refresh_time', '>', 0)
             ->where('refresh_time', '<', $now + TencentPrivateRefreshWindow::PRIVATE_LEAD_SECONDS)
             ->pluck($this->key)->toArray();
