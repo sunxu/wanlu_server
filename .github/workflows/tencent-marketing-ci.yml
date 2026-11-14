@@ -44,6 +44,7 @@ jobs:
           files=(
             admin_server/app/Service/Mkt/TencentAuthService.php
             admin_server/app/Service/Mkt/TxPrivateCredentialId.php
+            admin_server/app/Service/Mkt/TencentPrivateImportError.php
             admin_server/app/Service/Mkt/TencentPrivateCredentialService.php
             admin_server/app/Command/Mkt/TencentPrivateImport.php
             admin_server/app/Service/Mkt/MktService.php

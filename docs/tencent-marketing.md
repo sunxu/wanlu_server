@@ -42,6 +42,32 @@ php bin/hyperf.php mkt:txPrivateImport bxllzs "client_id" "client_secret" "refre
 - 自动刷新继续复用 `mkt:authToken`；刷新响应未报告 Refresh Token 时限时也使用上述 0/未知语义。
 - 此操作只写入凭证相关数据，不建立虚构 OAuth 用户关联、不改 `mkt_account.user_id`、不发转化回传。上线前必须单独核实每个账户身份、Token 对应授权范围以及现有广告主归属。
 
+### 导入失败诊断（安全原因代码）
+
+新版本在命令行显示 `腾讯私有凭证导入失败 [CODE]`，绝不输出腾讯返回的原始 message、完整 URL、SQL 参数或 Token。常见代码：
+
+- `APP_NOT_ACTIVE`：检查 `uc.app.app_code` 是否存在、`status=1`。
+- `DEVELOPER_APP_CONFLICT`：`mkt_app` 中已有该 `client_id`，但平台或密钥不一致；不能直接覆盖。
+- `CREDENTIAL_ALREADY_EXISTS`：同一业务 App 已有私有凭证；确认后才追加 `--replace`，不支持直接变更其 `client_id`。
+- `TOKEN_ALREADY_BOUND`：输入或刷新得到的 Token 已绑定另一业务 App。
+- `SECRET_STORAGE_LIMIT`：现有 `mkt_app.app_secret` 字段为 `VARCHAR(100)`，腾讯接口允许更长的密钥，但数据库不能无迁移直接存放；需评估字段扩容，不要截断。
+- `TENCENT_NETWORK_FAILED`：请求未得到可处理的响应，排查容器 DNS、TLS、代理、腾讯 API HTTP 状态（不要记录 URL Query）。
+- `TENCENT_REFRESH_REJECTED`：腾讯拒绝令牌刷新或响应格式不符合现有解析；核对真实 `client_id`、`client_secret`、`refresh_token`、是否刚生成未生效以及是否重置失效。
+- `TENCENT_TOKEN_RESPONSE_INVALID`：刷新响应缺少 Access Token、合法有效期或字段值不在数据库范围内。
+- `DB_READ_FAILED`、`DB_WRITE_FAILED`、`INTERNAL_ERROR`：检查数据库迁移、权限、连接与脱敏日志。
+
+下面的 SQL **只读且不包含 Token 明文**：
+
+```sql
+SELECT app_code, status FROM uc.app WHERE app_code = 'bxllzs';
+SELECT app_id, platform, LENGTH(app_secret) AS secret_length
+  FROM uc.mkt_app WHERE app_id = '你的client_id';
+SELECT user_id, app_id, FROM_UNIXTIME(access_time) AS access_expires_at
+  FROM uc.mkt_user WHERE user_id = CONCAT('txapp_', SHA1('bxllzs'));
+```
+
+该命令会尝试真实腾讯刷新接口：如收到失败代码，重新确认原因后再执行，避免频繁重置 Token。为保护敏感凭证，不要将完整命令行参数、数据库 Secret 或 API Query String 复制到工单/聊天。
+
 ### Callback 灰度开关、前置条件与回滚
 
 在 `api_server` 进程环境中配置 `TX_DATANEXUS_CALLBACK_APPS=bxllzs,lzgjf`（仅写入准备启用的 App，默认空）；启动或重启进程以加载配置。

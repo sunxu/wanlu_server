@@ -1,0 +1,25 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Service\Mkt;
+
+use RuntimeException;
+
+/**
+ * 仅用于私有 Token 导入的安全、固定失败代码。
+ * 绝不传播第三方响应、SQL 参数或密钥内容。
+ */
+final class TencentPrivateImportError extends RuntimeException
+{
+    public const INVALID_INPUT = 'INVALID_INPUT';
+    public const SECRET_STORAGE_LIMIT = 'SECRET_STORAGE_LIMIT';
+    public const APP_NOT_ACTIVE = 'APP_NOT_ACTIVE';
+    public const DEVELOPER_APP_CONFLICT = 'DEVELOPER_APP_CONFLICT';
+    public const CREDENTIAL_ALREADY_EXISTS = 'CREDENTIAL_ALREADY_EXISTS';
+    public const TOKEN_ALREADY_BOUND = 'TOKEN_ALREADY_BOUND';
+    public const TENCENT_NETWORK_FAILED = 'TENCENT_NETWORK_FAILED';
+    public const TENCENT_REFRESH_REJECTED = 'TENCENT_REFRESH_REJECTED';
+    public const TENCENT_TOKEN_RESPONSE_INVALID = 'TENCENT_TOKEN_RESPONSE_INVALID';
+    public const DB_READ_FAILED = 'DB_READ_FAILED';
+    public const DB_WRITE_FAILED = 'DB_WRITE_FAILED';
+}

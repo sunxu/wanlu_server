@@ -76,6 +76,7 @@ namespace {
 
     $root = dirname(__DIR__);
     require $root . '/admin_server/app/Service/Mkt/TxPrivateCredentialId.php';
+    require $root . '/admin_server/app/Service/Mkt/TencentPrivateImportError.php';
     require $root . '/admin_server/app/Service/Mkt/TencentPrivateCredentialService.php';
 
     class FakeImport extends \App\Service\Mkt\TencentPrivateCredentialService {
@@ -87,6 +88,15 @@ namespace {
             if ($result instanceof \Throwable) throw $result;
             return $result;
         }
+    }
+    function rejectsWithCode(callable $callback, string $code): void {
+        try {
+            $callback();
+        } catch (\App\Service\Mkt\TencentPrivateImportError $e) {
+            check($e->getMessage() === $code, '实际错误代码与预期不符：' . $e->getMessage());
+            return;
+        }
+        throw new \RuntimeException('应产生安全失败代码：' . $code);
     }
     function fixture(string $code): void {
         $app = new App();
@@ -161,5 +171,24 @@ namespace {
     rejects(function () use ($svc) { $svc->import('not_exists', params('x')); }, '不存在业务 App 拒绝');
     rejects(function () use ($svc) { $svc->import('bxllzs', ['client_id' => '123']); }, '缺失密钥拒绝');
     echo '通过：参数格式和业务 App 存在性检查' . PHP_EOL;
-    echo '共通过 8 组腾讯私有 Token 导入测试。' . PHP_EOL;
+
+    // 这组测试直接校验固定失败代码，确保真实令牌或腾讯响应不泄露到 CLI。
+    rejectsWithCode(function () use ($svc) { $svc->import('INVALID', params('x')); },
+        \App\Service\Mkt\TencentPrivateImportError::INVALID_INPUT);
+    rejectsWithCode(function () use ($svc) { $svc->import('not_exists', params('x')); },
+        \App\Service\Mkt\TencentPrivateImportError::APP_NOT_ACTIVE);
+    $tooLong = params('test-refresh');
+    $tooLong['client_secret'] = str_repeat('S', 101);
+    rejectsWithCode(function () use ($svc, $tooLong) { $svc->import('bxllzs', $tooLong); },
+        \App\Service\Mkt\TencentPrivateImportError::SECRET_STORAGE_LIMIT);
+    rejectsWithCode(function () use ($svc) { $svc->import('bxllzs', params('another-refresh')); },
+        \App\Service\Mkt\TencentPrivateImportError::CREDENTIAL_ALREADY_EXISTS);
+    $svc->responses[] = new \RuntimeException('远端错误携带机密 refresh_token=NEVER_PRINT');
+    rejectsWithCode(function () use ($svc) { $svc->import('bxllzs', params('unused-refresh', true)); },
+        \App\Service\Mkt\TencentPrivateImportError::TENCENT_REFRESH_REJECTED);
+    $svc->responses[] = new \RuntimeException('腾讯营销请求失败：/oauth/token');
+    rejectsWithCode(function () use ($svc) { $svc->import('bxllzs', params('unused-refresh', true)); },
+        \App\Service\Mkt\TencentPrivateImportError::TENCENT_NETWORK_FAILED);
+    echo '通过：结构化安全失败代码与密钥脱敏' . PHP_EOL;
+    echo '共通过 9 组腾讯私有 Token 导入测试。' . PHP_EOL;
 }
