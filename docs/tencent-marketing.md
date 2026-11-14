@@ -54,7 +54,7 @@ php bin/hyperf.php mkt:txPrivateImport bxllzs "client_id" "client_secret" "refre
 - `TENCENT_NETWORK_FAILED`：请求未得到可处理的响应，排查容器 DNS、TLS、代理、腾讯 API HTTP 状态（不要记录 URL Query）。
 - `TENCENT_REFRESH_REJECTED`：腾讯拒绝令牌刷新或响应格式不符合现有解析；核对真实 `client_id`、`client_secret`、`refresh_token`、是否刚生成未生效以及是否重置失效。
 - `TENCENT_TOKEN_RESPONSE_INVALID`：刷新响应缺少 Access Token、合法有效期或字段值不在数据库范围内。
-- `DB_WRITE_FAILED`、`INTERNAL_ERROR`：检查数据库迁移、权限、连接与脱敏日志。
+- `DB_READ_FAILED`、`DB_WRITE_FAILED`、`INTERNAL_ERROR`：检查数据库迁移、权限、连接与脱敏日志。
 
 下面的 SQL **只读且不包含 Token 明文**：
 
