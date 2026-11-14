@@ -42,9 +42,15 @@ jobs:
           set -euo pipefail
           files=(
             admin_server/app/Service/Mkt/TencentAuthService.php
+            admin_server/app/Service/Mkt/TxPrivateCredentialId.php
+            admin_server/app/Service/Mkt/TencentPrivateCredentialService.php
+            admin_server/app/Command/Mkt/TencentPrivateImport.php
+            admin_server/app/Service/Mkt/MktService.php
             admin_server/app/Controller/Mkt/MktController.php
             admin_server/app/Library/Mkt/MktTx.php
             api_server/app/Services/Mkt/TencentClick.php
+            api_server/app/Services/Mkt/TencentCallbackUrl.php
+            api_server/app/Services/Mkt/TencentService.php
             tests/tencent_marketing_test.php
             tests/tencent_persistence_test.php
             tests/tencent_attribution_test.php
