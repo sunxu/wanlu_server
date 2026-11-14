@@ -53,7 +53,13 @@ php bin/hyperf.php mkt:txPrivateImport bxllzs "client_id" "client_secret" "refre
 - `SECRET_STORAGE_LIMIT`：现有 `mkt_app.app_secret` 字段为 `VARCHAR(100)`，腾讯接口允许更长的密钥，但数据库不能无迁移直接存放；需评估字段扩容，不要截断。
 - `TENCENT_NETWORK_FAILED`：请求未得到可处理的响应，排查容器 DNS、TLS、代理、腾讯 API HTTP 状态（不要记录 URL Query）。
 - `TENCENT_REFRESH_REJECTED`：腾讯拒绝令牌刷新或响应格式不符合现有解析；核对真实 `client_id`、`client_secret`、`refresh_token`、是否刚生成未生效以及是否重置失效。
-- `TENCENT_TOKEN_RESPONSE_INVALID`：刷新响应缺少 Access Token、合法有效期或字段值不在数据库范围内。
+- `TENCENT_TOKEN_RESPONSE_INVALID`：返回结构不是预期的 Token 数据，需核对协议适配。
+- `TENCENT_ACCESS_TOKEN_INVALID` / `TENCENT_REFRESH_TOKEN_INVALID`：对应 Token 为空或长度超过 `mkt_user` 字段容量。
+- `TENCENT_ACCESS_EXPIRY_INVALID`：Access Token 到期时间不存在、不是整数或超出数据库可存储范围。
+- `TENCENT_ACCESS_EXPIRY_TOO_SOON`：Access Token 过期或不足 60 秒。
+- `TENCENT_REFRESH_EXPIRY_INVALID`：Refresh Token 到期时间类型/范围不合法；未知期限使用 `0` 标记。
+- `TENCENT_REFRESH_EXPIRY_TOO_SOON`：Refresh Token 到期时间已过或不足 60 秒。
+- **已修复误判**：Access 与 Refresh Token 的有效期各自独立校验；不再强制 Refresh Token 晚于 Access Token 过期，避免拒绝接口允许的独立寿命配置。
 - `DB_READ_FAILED`、`DB_WRITE_FAILED`、`INTERNAL_ERROR`：检查数据库迁移、权限、连接与脱敏日志。
 
 下面的 SQL **只读且不包含 Token 明文**：

@@ -94,14 +94,26 @@ class TencentPrivateCredentialService
         $accessExpiry = $token['access_time'] ?? null;
         // 0 代表腾讯本次响应未返回 Refresh Token 到期时间（未知），绝非已过期。
         $refreshExpiry = $token['refresh_time'] ?? 0;
-        if ($access === '' || strlen($access) > 500
-            || $nextRefresh === '' || strlen($nextRefresh) > 500
-            || !is_int($accessExpiry) || $accessExpiry <= $now + 60
-            || $accessExpiry > 4294967295
-            || !is_int($refreshExpiry) || $refreshExpiry < 0
-            || $refreshExpiry > 4294967295
-            || ($refreshExpiry > 0 && ($refreshExpiry <= $now + 60 || $refreshExpiry <= $accessExpiry))) {
-            throw new TencentPrivateImportError(TencentPrivateImportError::TENCENT_TOKEN_RESPONSE_INVALID);
+        // 两种 Token 的 TTL 是独立的。允许 Refresh Token 早于 Access Token 过期；
+        // 只拒绝已经过期、马上过期、缺失或数据库无法存储的值。
+        // 固定错误代码不输出任何 Token 内容或腾讯原始响应。
+        if ($access === '' || strlen($access) > 500) {
+            throw new TencentPrivateImportError(TencentPrivateImportError::TENCENT_ACCESS_TOKEN_INVALID);
+        }
+        if ($nextRefresh === '' || strlen($nextRefresh) > 500) {
+            throw new TencentPrivateImportError(TencentPrivateImportError::TENCENT_REFRESH_TOKEN_INVALID);
+        }
+        if (!is_int($accessExpiry) || $accessExpiry < 0 || $accessExpiry > 4294967295) {
+            throw new TencentPrivateImportError(TencentPrivateImportError::TENCENT_ACCESS_EXPIRY_INVALID);
+        }
+        if ($accessExpiry <= $now + 60) {
+            throw new TencentPrivateImportError(TencentPrivateImportError::TENCENT_ACCESS_EXPIRY_TOO_SOON);
+        }
+        if (!is_int($refreshExpiry) || $refreshExpiry < 0 || $refreshExpiry > 4294967295) {
+            throw new TencentPrivateImportError(TencentPrivateImportError::TENCENT_REFRESH_EXPIRY_INVALID);
+        }
+        if ($refreshExpiry > 0 && $refreshExpiry <= $now + 60) {
+            throw new TencentPrivateImportError(TencentPrivateImportError::TENCENT_REFRESH_EXPIRY_TOO_SOON);
         }
 
         try {
