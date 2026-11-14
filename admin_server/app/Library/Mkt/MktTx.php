@@ -146,7 +146,7 @@ class MktTx extends MktAbstract
             );
             $status = (int)$response->getStatusCode();
             $raw = (string)$response->getBody();
-        } catch (\\Throwable $e) {
+        } catch (\Throwable $e) {
             // Guzzle transport exceptions may contain full URLs with credentials.
             throw new TencentAdvertiserProbeError(TencentAdvertiserProbeError::NETWORK_FAILED);
         }
