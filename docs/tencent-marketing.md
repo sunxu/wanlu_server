@@ -156,6 +156,42 @@ php bin/hyperf.php mkt:txPrivateAccountProbe lzgjf "真实腾讯广告账户ID"
 
 私有 Token 成功访问指定广告账户，不代表用户行为上报权限已开通。后续须分别核对 `mkt_account.account_id/is_valid/user_id` 与 `mkt_advertiser.advertiser_id/account_id/app_code/platform/status`，**不能复用或覆盖现有巨量 OAuth 账户 ID 和 user_id，也不允许创建虚构 OAuth 身份**。账户绑定是后续独立的、需核实真实身份和权限的步骤。
 
+### 已验权腾讯私有账户的安全绑定（2026-11-14）
+
+联调实测腾讯 `GET advertiser/get` 通过，返回 `code=0`、且 `data.list` 唯一账户 `94079761`。私有凭证对应业务 App `lzgjf`。本地尚无 `mkt_account.account_id=94079761` 和 `mkt_advertiser.advertiser_id=94079761`，而当前业务 App 的巨量广告主应原样保留。
+
+新增命令默认**只读预览**：重新使用已入库的腾讯私有 Token 调用 `advertiser/get` 并取得真实 `corporation_name`，确认账户身份、有效凭证及当前数据库所有权，输出拟创建条目，不执行写库：
+
+```bash
+cd /opt/jingling/admin_server
+php bin/hyperf.php mkt:txPrivateBind lzgjf 94079761
+```
+
+预期（首次建档、无冲突时）：`TX_BIND_DRY_RUN_READY`，`would_create_account=true`，`would_create_advertiser=true`。任何历史 `mkt_account.user_id` 与当前真实私有凭证不一致、`advertiser_id` 被其他平台或 App 占用，或现有账户/广告主停用，都返回具体 `..._HOLD`，不得覆盖。
+
+仅在**人工确认上述预览结果后**，由运维在服务器执行：
+
+```bash
+php bin/hyperf.php mkt:txPrivateBind lzgjf 94079761 --apply
+```
+
+该命令再次向腾讯读真实广告主，校验 `account_id` 与 `advertiser_id` 同为 `94079761`；真实名称取腾讯返回的 `corporation_name`，不能从其他平台名称猜测。以单数据库事务插入**缺失**的两条记录：
+
+- `mkt_account`: `account_id=94079761`、`user_id=txapp_...`（已导入且经过腾讯验证的实际私有 `mkt_user`，不是虚构 OAuth 身份）、`account_role=PRIVATE_APP`、`is_valid=1`。若账户已有其他 OAuth 归属，严格拒绝改写。
+- `mkt_advertiser`: `advertiser_id=94079761`、`account_id=94079761`、`app_code=lzgjf`、`platform=tx`、`status=1`，使用原有策略默认值，不写入假定的转化事件配置。
+- 已属于同一私有凭证及同一业务 App 的记录保持原样（幂等），不会重置既有配置；插入任意一步失败自动回滚该事务。
+- 命令**不会**改动巨量记录、刷新或重置 Token、改动 `TX_DATANEXUS_CALLBACK_APPS`、触发转化上报。
+
+实际插入前必须确认当前环境数据库的 `mkt_account`、`mkt_advertiser` 列约束与默认值支持新增数据。若因线上特有约束报 `TX_BIND_DB_TRANSACTION_FAILED`，先检查 `SHOW CREATE TABLE`，不要绕过所有权守卫做手工 SQL。
+
+写入后执行：
+
+```bash
+php bin/hyperf.php mkt:txPrivatePreflight lzgjf
+```
+
+预检结果仅证明本地绑定、令牌时限及本进程定时任务开关；真实转化前仍需验证点击 `callback_url`、DataNexus 用户行为上报权限与 API Server Callback 开关。上述命令不自动开启灰度。
+
 ### Callback 灰度开关、前置条件与回滚
 
 在 `api_server` 进程环境中配置 `TX_DATANEXUS_CALLBACK_APPS=bxllzs,lzgjf`（仅写入准备启用的 App，默认空）；启动或重启进程以加载配置。
