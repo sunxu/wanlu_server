@@ -33,7 +33,7 @@ class TencentPrivateCredentialService
         $replace = $input['replace_existing'] ?? false;
 
         if (!preg_match('/^[0-9]{1,50}$/D', $clientId)
-            || $secret === '' || strlen($secret) > 100
+            || $secret === ''
             || $refresh === '' || strlen($refresh) > 500) {
             throw new TencentPrivateImportError(TencentPrivateImportError::INVALID_INPUT);
         }
@@ -73,15 +73,15 @@ class TencentPrivateCredentialService
                 : TencentPrivateImportError::TENCENT_REFRESH_REJECTED;
             throw new TencentPrivateImportError($reason);
         }
+        if (!is_array($token)) {
+            throw new TencentPrivateImportError(TencentPrivateImportError::TENCENT_TOKEN_RESPONSE_INVALID);
+        }
         $now = time();
         $access = (string)($token['access_token'] ?? '');
         $nextRefresh = (string)($token['refresh_token'] ?? $refresh);
         $accessExpiry = $token['access_time'] ?? null;
         // 0 代表腾讯本次响应未返回 Refresh Token 到期时间（未知），绝非已过期。
         $refreshExpiry = $token['refresh_time'] ?? 0;
-        if (!is_array($token)) {
-            throw new TencentPrivateImportError(TencentPrivateImportError::TENCENT_TOKEN_RESPONSE_INVALID);
-        }
         if ($access === '' || strlen($access) > 500
             || $nextRefresh === '' || strlen($nextRefresh) > 500
             || !is_int($accessExpiry) || $accessExpiry <= $now + 60
@@ -94,9 +94,9 @@ class TencentPrivateCredentialService
 
         try {
             Db::transaction(function () use (
-            $appCode, $userId, $clientId, $secret, $refresh, $replace,
-            $access, $nextRefresh, $accessExpiry, $refreshExpiry
-        ) {
+                $appCode, $userId, $clientId, $secret, $refresh, $replace,
+                $access, $nextRefresh, $accessExpiry, $refreshExpiry
+            ) {
             $developer = MktApp::query()->where('app_id', $clientId)->lockForUpdate()->first();
             if ($developer && ($developer->platform !== MktConst::PLATFORM_TX
                 || !hash_equals((string)$developer->app_secret, $secret))) {
