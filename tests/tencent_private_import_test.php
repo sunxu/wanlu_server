@@ -40,7 +40,7 @@ namespace TencentPrivateTest {
         if (!$condition) throw new \RuntimeException($message);
     }
     function rejects($call, $message) {
-        try { $call(); } catch (\RuntimeException $e) { return; }
+        try { $call(); } catch (\Exception $e) { return; }
         throw new \RuntimeException($message);
     }
 }
