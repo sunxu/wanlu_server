@@ -45,8 +45,11 @@ jobs:
             admin_server/app/Service/Mkt/TencentAuthService.php
             admin_server/app/Service/Mkt/TxPrivateCredentialId.php
             admin_server/app/Service/Mkt/TencentPrivateImportError.php
+            admin_server/app/Service/Mkt/TencentPrivateRefreshWindow.php
             admin_server/app/Service/Mkt/TencentPrivateCredentialService.php
             admin_server/app/Command/Mkt/TencentPrivateImport.php
+            admin_server/app/Command/Mkt/TencentPrivatePreflight.php
+            admin_server/app/Command/Mkt/AuthToken.php
             admin_server/app/Service/Mkt/MktService.php
             admin_server/app/Controller/Mkt/MktController.php
             admin_server/app/Library/Mkt/MktTx.php
@@ -55,6 +58,7 @@ jobs:
             api_server/app/Services/Mkt/TencentService.php
             tests/tencent_marketing_test.php
             tests/tencent_private_import_test.php
+            tests/tencent_private_refresh_test.php
             tests/tencent_persistence_test.php
             tests/tencent_attribution_test.php
             tests/tencent_app_creation_test.php
@@ -66,6 +70,7 @@ jobs:
           set -euo pipefail
           php tests/tencent_marketing_test.php
           php tests/tencent_private_import_test.php
+          php tests/tencent_private_refresh_test.php
           php tests/tencent_persistence_test.php
           php tests/tencent_attribution_test.php
           php tests/tencent_app_creation_test.php
