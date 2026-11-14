@@ -20,5 +20,6 @@ final class TencentPrivateImportError extends RuntimeException
     public const TENCENT_NETWORK_FAILED = 'TENCENT_NETWORK_FAILED';
     public const TENCENT_REFRESH_REJECTED = 'TENCENT_REFRESH_REJECTED';
     public const TENCENT_TOKEN_RESPONSE_INVALID = 'TENCENT_TOKEN_RESPONSE_INVALID';
+    public const DB_READ_FAILED = 'DB_READ_FAILED';
     public const DB_WRITE_FAILED = 'DB_WRITE_FAILED';
 }
