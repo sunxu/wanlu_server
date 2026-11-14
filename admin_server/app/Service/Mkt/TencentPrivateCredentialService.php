@@ -104,7 +104,7 @@ class TencentPrivateCredentialService
             if (!$developer) {
                 $developer = new MktApp();
                 $developer->app_id = $clientId;
-                $developer->app_name = '腾讯私有应用 ' . $clientId;
+                $developer->app_name = '腾讯私有应用';
                 $developer->app_secret = $secret;
                 $developer->platform = MktConst::PLATFORM_TX;
                 $developer->auth_url = '';
@@ -114,7 +114,7 @@ class TencentPrivateCredentialService
             if (!$credential) {
                 $credential = new MktUser();
                 $credential->user_id = $userId;
-                $credential->user_name = '腾讯私有凭证 ' . $appCode;
+                $credential->user_name = 'TX:' . substr($appCode, 0, 46);
                 $credential->user_email = '';
                 $credential->app_id = $clientId;
             }
