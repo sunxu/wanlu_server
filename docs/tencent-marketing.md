@@ -110,6 +110,26 @@ SHOW INDEX FROM app_lzgjf_tx;
 
 `app_lzgjf_tx.callback_url` 需能完整存储实际 `__CALLBACK__`（目前代码验证上限2048字节，实际库字段要匹配），并需要检查真实点击是否保存合法的 Callback URL。联调前先用实际点击样本核实 Tencent Callback URL 的域名、协议和参数与当前允许列表吻合；不要用伪造 URL 作生产写入或回传验证。若还未确认账户绑定及官方 Callback URL，则继续保持 `TX_DATANEXUS_CALLBACK_APPS` 关闭。
 
+### 腾讯广告主权限联调：原始 HTTP 调试日志
+
+仅在需要定位 `TX_ACCOUNT_PROBE_REMOTE_ADVERTISER_GET_FAILED` 时，**单次明确开启**私有账户只读探测日志（不开启其他接口日志）：
+
+```bash
+cd /opt/jingling/admin_server
+TX_ACCOUNT_PROBE_RAW_LOG=1 php bin/hyperf.php mkt:txPrivateAccountProbe lzgjf 94946190
+tail -n 100 runtime/logs/tencent-account-probe-raw.log
+```
+
+**日志路径：** `admin_server/runtime/logs/tencent-account-probe-raw.log`（创建时权限 0600）。日志记录原始 GET URL/Query（包含 Access Token）、所有发送的 Guzzle options、实际 HTTP 状态、返回 Headers、未经修改的 Response Body，以及请求抛出的底层异常及堆栈；可直接判断腾讯 API `code`、`message`、实际协议字段。日志记录完全由 `TX_ACCOUNT_PROBE_RAW_LOG=1` 启用，默认关闭；只执行 `GET /v3.0/advertiser/get`，不会刷新 Token 或改写数据库。
+
+**注意：日志包含可使用的完整 Token，绝对不能直接上传到 GitHub、聊天或公开工单。** 联调时可以在自己的服务器阅读原始记录；向他人提供时只保留非敏感的 HTTP 状态、`code`、`message`、响应字段名。完成测试后，删除该专用日志：
+
+```bash
+rm -f /opt/jingling/admin_server/runtime/logs/tencent-account-probe-raw.log
+```
+
+即使调试请求失败，本地 `mkt_account` 与 `mkt_advertiser` 也不会被修改。
+
 ### 真实腾讯广告主权限验证（只读）
 
 现阶段 `lzgjf` 业务 App 下原有广告主均为 `jl`；`uc.mkt_advertiser` 的腾讯 `tx` 记录为 0。腾讯私有 Token 的身份权限只覆盖创建私有应用的 QQ 对应账户；**开发者 client_id 不是广告主 account_id**。必须从腾讯广告账户管理界面取得真实的 `account_id`，不能根据巨量广告主或开发者应用 ID 猜测。
