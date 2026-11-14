@@ -174,6 +174,42 @@ class MktService
 
         $refreshToken = $model->refresh_token;
 
+        if (TxPrivateCredentialId::isPrivate($userId)) {
+            if ($model->app->platform !== MktConst::PLATFORM_TX
+                || !$refreshToken
+                || ((int)$model->refresh_time > 0 && (int)$model->refresh_time <= time())) {
+                throw new Exception('腾讯私有应用刷新凭证无效或已过期');
+            }
+            $oldAccess = (string)$model->access_token;
+            $new = $mkt->authRefreshToken($refreshToken);
+            $update = [
+                'access_token' => $new['access_token'],
+                'access_time' => $new['access_time'],
+                'updated_time' => time(),
+            ];
+            if (!empty($new['refresh_token'])) {
+                $update['refresh_token'] = $new['refresh_token'];
+            }
+            // 腾讯刷新响应没有 refresh_token_expires_in 时，0 标记“未知”，
+            // 不能用旧的已过时限或默认 30 天冒充这次刷新后的真实有效期。
+            $update['refresh_time'] = isset($new['refresh_time']) ? (int)$new['refresh_time'] : 0;
+            // 乐观锁：并发刷新或后台重新导入后不得用旧请求覆盖新凭证。
+            $updated = MktUser::query()
+                ->where('user_id', $userId)
+                ->where('app_id', $model->app_id)
+                ->where('access_token', $oldAccess)
+                ->where('refresh_token', $refreshToken)
+                ->update($update);
+            if ($updated !== 1) {
+                $latest = MktUser::find($userId);
+                if ($latest && (int)$latest->access_time > time() + 60) {
+                    return true;
+                }
+                throw new Exception('腾讯私有应用凭证已变化，请重新检查刷新状态');
+            }
+            return true;
+        }
+
         // 百度
         $this->bd($model->app->platform, $refreshToken, $userId);
 
@@ -220,6 +256,11 @@ class MktService
 
         if (!$model) {
             throw new Exception('invalid userId:' . $userId);
+        }
+
+        // 私有凭证由业务 App 独立选择，不得由账户同步流程改写账户所属 OAuth 用户。
+        if (TxPrivateCredentialId::isPrivate($userId)) {
+            return;
         }
 
         // 快手

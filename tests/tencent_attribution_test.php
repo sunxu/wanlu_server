@@ -141,6 +141,7 @@ namespace {
 
     $root = dirname(__DIR__);
     require $root . '/api_server/app/Constants/AdConst.php';
+    require $root . '/api_server/app/Services/Mkt/TencentCallbackUrl.php';
     require $root . '/api_server/app/Services/Mkt/TencentClick.php';
     require $root . '/api_server/app/Services/Mkt/GuiyinService.php';
     require $root . '/api_server/app/Services/Mkt/MktService.php';

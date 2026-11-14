@@ -35,7 +35,7 @@
         </el-radio-group>
       </el-col>
       <el-col :span="12">
-        <el-button @click="showTencentAuth" style="float: right;">腾讯营销授权</el-button>
+        <el-button @click="showTencentAuth" style="float: right;">腾讯营销 OAuth 授权</el-button>
         <el-button type="primary" icon="el-icon-search" @click="onSearch" style="float: right; margin-right: 10px;">搜索
         </el-button>
       </el-col>
@@ -130,10 +130,11 @@
       @pagination="fetchData"
     />
 
-    <el-dialog :visible.sync="tencentAuthVisible" title="腾讯营销授权" width="480px">
+    <el-dialog :visible.sync="tencentAuthVisible" title="腾讯营销 OAuth 授权" width="480px">
       <el-select v-model="tencentAppId" placeholder="请选择已配置的腾讯开放平台应用" style="width: 100%;">
         <el-option v-for="app in tencentApps" :key="app.app_id" :label="app.app_name + ' (' + app.app_id + ')'" :value="app.app_id" />
       </el-select>
+      <p>此入口仅适用于 OAuth 授权。腾讯私有应用已有 Token 时，请使用服务器端安全导入命令，不要点击“前往授权”。</p>
       <p v-if="!tencentApps.length">暂无腾讯开放平台应用，请先完成应用配置。</p>
       <span slot="footer">
         <el-button @click="tencentAuthVisible = false">取消</el-button>
