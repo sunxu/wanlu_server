@@ -1,5 +1,69 @@
 # 腾讯营销接入与联调
 
+## 腾讯私有应用 Token + DataNexus Callback（V2，灰度）
+
+> 本文保留原 OAuth + 非 Callback 流程，作为 **未开启灰度的现有链路**。将 App Code 加入 `TX_DATANEXUS_CALLBACK_APPS` 后，才启用本节的新协议。不得只部署代码就直接切换 DataNexus 后台；应在测试环境确认目标 App 已开启鉴权、点击 URL 与凭证正确后再灰度。
+
+### 数据关系与存储（无需新增表）
+
+- 一个管理账户（`mkt_account`）拥有多个广告主（`mkt_advertiser`），每个广告主在 `app_code` 中只绑定一个业务 App。沿用已有绑定功能，不改变主键。
+- `mkt_app.app_id` 保存腾讯开发者应用 `client_id`，`mkt_app.app_secret` 保存 `client_secret`；一个开发者应用可关联多个业务 App 的私有 Token。
+- 每个业务 App 对应 `mkt_user` 中一条私有凭证，`user_id = 'txapp_' . sha1(app_code)`（必须小写、长度不超过 50 字符）。`mkt_user.app_id` 关联开发者应用，`access_token`、`refresh_token`、`access_time`、`refresh_time` 存放对应数据。此 ID 是内部凭证记录 ID，不是真实腾讯 OAuth 用户。
+- **不使用** `credential_user_id`、`uc.app.extra` Token 映射，也不通过 `mkt_account.user_id` 为腾讯私有 Callback 选择 Token；巨量与其他平台保持现有关系。
+- 若多个业务 App 的私有 Token 实际来源于同一个腾讯开发者应用 + 同一个授权身份，腾讯重置 Token 可能使另一条失效。导入时会拒绝完全相同的凭证；仍必须在线核实腾讯侧身份与授权是否真正独立，不能只靠两条数据库记录保证隔离。
+- 当前数据库字段沿用已有明文存储方式；限制 DB/备份/审计访问并关闭包含 SQL 参数的详细日志，后续如引入加密须先完成兼容迁移。代码和 GitHub 不含任何真实密钥。
+
+### 私有 Token 安全导入
+
+在 `admin_server` **服务器本地**准备权限 `0600` 的 JSON 文件，文件内容格式（均为示例占位值，不能直接用于正式环境）：
+
+```json
+{
+  "client_id": "你的腾讯开发者应用ID",
+  "client_secret": "你的腾讯开发者应用密钥",
+  "app_name": "林舟工具坊",
+  "access_token": "你的实际AccessToken",
+  "refresh_token": "你的实际RefreshToken",
+  "access_expires_at": 1799999900,
+  "refresh_expires_at": 1800999900,
+  "replace_existing": false
+}
+```
+
+到期时间是**腾讯凭证实际到期的 Unix 秒**，不是导入时起算的新有效期。已经登记同一 `client_id` 时 `client_secret` 可省略；如果 Secret 变更，禁止通过导入命令静默替换，请单独执行密钥轮换。刷新未返回新的 Refresh Token 时，原值及原到期时间保持不变。
+
+```bash
+cd admin_server
+chmod 600 /安全路径/tx-private-credential.json
+php bin/hyperf.php mkt:txPrivateImport bxllzs /安全路径/tx-private-credential.json
+# 导入后按公司机密文件处理规范安全清除该临时文件及其备份
+```
+
+更换已导入的凭证必须明确设 `replace_existing=true`，程序拒绝覆盖其他开发者应用的记录、重复凭证以及不存在的业务 App。导入不触发真实 Callback 请求；同时不会自动伪造 `mkt_account` 或广告主归属。上线前需要由具备权限的管理员核对并登记真实账户与广告主。
+
+**刷新**：继续使用 `mkt:authToken` 和 `MktTx::authRefreshToken()`，私有凭证增加 CAS 比对，防止并发刷新或重新导入被旧结果覆盖；刷新失败不覆盖旧 Token。实际定时任务及队列部署状态需在生产环境另行核验。
+
+### Callback 灰度开关、前置条件与回滚
+
+在 `api_server` 进程环境中配置 `TX_DATANEXUS_CALLBACK_APPS=bxllzs,lzgjf`（仅写入准备启用的 App，默认空）；启动或重启进程以加载配置。
+
+必须先确认：
+1. `uc.mkt_advertiser` 已登记真实腾讯广告主、`app_code` 匹配且 `status=1`，关联的真实 `mkt_account` 已存在且 `is_valid=1`，不可伪造 OAuth 用户。
+2. 对应 App 的私有凭证已导入并经过腾讯侧实际权限验证，过期时间可信且自动刷新可用。
+3. DataNexus 「广告效果监测」已为该链路**开启鉴权**；下发的 `__CALLBACK__` 经过 Query String 解码后应是合法的 `https://api.e.qq.com/conv?cb=...&conv_id=...` 或官方相容的 `/v3.0/user_actions/add` URL。
+4. 实际业务库 `app_{app_code}_tx.callback_url` 可容纳最长 **2048 字节**；如容量不足先扩容已有列（不要截断），检查点击唯一索引及并发重复插入。
+5. 监测 URL **无尾斜杠**，真实点击不返回 301；归因事件包含可靠 `click_id` 和实际事件时间。
+
+灰度新链路从 `app_code` 自动计算私有 `mkt_user.user_id`，使用该 Token 以 POST 上报 `actions`，Header 携带 `access-token`、`timestamp`、`nonce`。仅允许腾讯 HTTPS URL，校验证书，不跟随重定向；禁止将敏感 Header 发往非腾讯或 HTTP 目标。旧 `http://tracking.e.qq.com/conv` 仅允许作为历史点击记录，不能进行新鉴权上报。
+
+POST 成功判定为 HTTP 200 且 `code=0`；保留现有 `NotifyAdActiveJob` 的 `active_status` 成功标记、失败计数与重试。重试使用稳定的 `outer_action_id`，不生成第二次转化。响应日志仅记录错误码和 trace_id，不记录 Token、URL 查询串和设备标识。
+
+**回滚**：清空/移除 `TX_DATANEXUS_CALLBACK_APPS` 并重启 `api_server` 即恢复旧的非 Callback 路由；但如果 DataNexus 后台已经改为 Callback 鉴权，需要同时恢复匹配的后台上报设置，避免协议不一致。已有状态/点击数据不会自动更改。
+
+官方协议：[DataNexus APP 转化数据 API 自归因](https://datanexus.qq.com/doc/develop/guider/interface/conversion/trackingcgi_api_app)。
+
+---
+
 ## 接入范围和数据关系
 
 平台代码为 `tx`，归因来源为 `8`，广点通安装渠道仍为 `11`。优量汇属于变现平台，配置不变。
@@ -66,17 +130,17 @@ https://应用所属域名/v1/ad/tx/应用代码?advertiser_id=__ACCOUNT_ID__&ad
 
 **线上排查结论（2026-11-13）：** 带尾斜杠的 `/v1/ad/tx/bxllzs/` 在服务器返回 HTTP 301，而无尾斜杠 `/v1/ad/tx/bxllzs` 携带无效测试参数时直接返回 HTTP 400、无跳转。因此监测地址必须使用无尾斜杠形式；301 虽保留 Query String，但测试广告客户端可能不跟随重定向。配置更新后须重新下发真实点击并检查 `app_bxllzs_tx` 入库，不能仅凭腾讯后台“联调成功”判断业务入库成功。
 
-`admin_server/config/autoload/ad.php` 负责生成上述监测参数，`advertiser_id` 等名称属于**本地接收字段**，右侧 `__...__` 才是腾讯宏。监测方案继续使用**非 Callback 的 OAuth + `user_actions/add`**。DataNexus 当前校验要求监测链接含 `__HASH_OAID__`、`__PROMOTED_OBJECT_ID__`、`__CALLBACK__`、`__DEVICE_OS_TYPE__` 四个宏，因此将其一并下发；其中 `callback_url` 仅用于满足监测配置字段，本地点击归因及转化回传仍不使用该 URL 发请求。腾讯后台转化方式仍须选择与现有 `user_actions/add` 一致的配置，不得因为增加 Callback 宏而切换回传协议。确认 DataNexus 实际链接组支持这些宏后再启用投放。
+`admin_server/config/autoload/ad.php` 负责生成上述监测参数，`advertiser_id` 等名称属于**本地接收字段**，右侧 `__...__` 才是腾讯宏。未列入 `TX_DATANEXUS_CALLBACK_APPS` 的业务 App 继续使用**非 Callback 的 OAuth + `user_actions/add`**。DataNexus 当前校验要求监测链接含 `__HASH_OAID__`、`__PROMOTED_OBJECT_ID__`、`__CALLBACK__`、`__DEVICE_OS_TYPE__` 四个宏，因此将其一并下发；其中 `callback_url` 现在会按允许的目标地址保存；旧非 Callback 流程不使用它，已明确灰度的私有应用流程则以它作为 HTTPS POST 目标。后台转化方式必须与该业务 App 实际启用的回传协议一致。确认 DataNexus 实际链接组支持这些宏后再启用投放。
 
 - `__OAID__` 下发 OAID 原值，用于本地设备归因，回传时只计算一次 MD5；外部如果已经传入 32 位哈希，则保持其值，避免二次 MD5。不要直接把 `__HASH_OAID__` 替换到上述 `oaid` 参数：本地按设备 OAID 原值匹配，会造成归因命中率下降。
 - `__HASH_ANDROID_ID__` 已是 MD5，点击接收和回传均不再重复哈希；本地设备归因仍以原始 Android ID 匹配其 MD5。
 - `__MUID__` 保留已有字段映射，兼容已上线历史点击与归因；当前存储以 `imei` 列承载该值是**历史兼容约定**，并不意味着 MUID 就是原始 IMEI，后续应另行评估明确的设备标识存储方案，不在本次修改点击表结构。
-- 新增的 `hash_oaid` 是独立的已哈希设备字段，不覆盖 `oaid` 原值，避免改变现有原值匹配规则。`promoted_object_id` 和 `device_os_type` 属于监测元数据，不作为新的入库必填字段；`callback_url` 不用于现有转化回传。
+- 新增的 `hash_oaid` 是独立的已哈希设备字段，不覆盖 `oaid` 原值，避免改变现有原值匹配规则。`promoted_object_id` 和 `device_os_type` 属于监测元数据，不作为新的入库必填字段；`callback_url` 仅用于已启用的 Callback 灰度流程，旧链路仍不使用。
 - 腾讯后台必须真实下发 `click_id` 和 `click_time`，不得由服务端伪造。
 
 接收接口将 `advertiser_id → account_id`、`adgroup_id → aid`、`creative_id → cid`；保留 `click_id`，规范化点击时间和设备标识。账户须为已启用且绑定当前应用的腾讯广告主。成功应答 `{"ret":0,"msg":"OK"}`；缺表或非法参数不返回成功。
 
-## 使用已有扩展配置完成回传
+## 使用已有扩展配置完成旧版非 Callback 回传
 
 不新增专用表单。在现有广告主“扩展配置”中填写实际参数，并保留该广告主其他配置：
 
@@ -90,7 +154,7 @@ https://应用所属域名/v1/ad/tx/应用代码?advertiser_id=__ACCOUNT_ID__&ad
 
 `user_action_set_id` 必须是有效数字 ID。激活使用 `ACTIVATE_APP`；次日留存使用 `START_APP`，回传附带 `action_param.length_of_stay=1`；具体触发时机沿用现有自然日或 24 小时定义。关键行为使用 `key_action_type`，值必须与腾讯已配置且支持的转化目标一致；选择 `CUSTOM` 时必须提供 `custom_action`。如现有关键行为采用加桌，上报时同样可按账户配置映射，未配置时使用 `ADD_DESKTOP`。
 
-上报接口为 `user_actions/add`，包含设备哈希和原始点击 ID。事件幂等标识由应用、账户、点击、事件类型和发生时间生成；重试保持不变。失败继续使用现有通知次数及重试流程，不将失败标成成功。
+旧版非 Callback 上报接口为 `user_actions/add`；新版使用腾讯下发的签名 Callback URL。两者都包含设备哈希和原始点击 ID。事件幂等标识由应用、账户、点击、事件类型和发生时间生成；重试保持不变。失败继续使用现有通知次数及重试流程，不将失败标成成功。
 
 报表默认获取消耗、展现、点击、转化、激活。关键行为和留存的腾讯报表指标需根据实际账户、目标及接口支持情况，在原有扩展配置中指定对应计数字段：
 
@@ -119,7 +183,7 @@ https://应用所属域名/v1/ad/tx/应用代码?advertiser_id=__ACCOUNT_ID__&ad
 - 先在腾讯 DataNexus 实际测试广告上配置后台生成的宏监测地址。对一个已绑定、状态有效的腾讯直客账户进行真实点击；接口应返回 HTTP 200 和 `{"ret":0,"msg":"OK"}`。
 - 检查 `app_{应用代码}_tx` 存在且记录正确的 `account_id`、`aid`、`click_id` 与点击时间；重复投递同一账户和 `click_id` 不应新增记录。**隔离测试只覆盖顺序重复请求**，生产并发去重仍依赖实际数据库约束，应在联调时检查唯一索引。
 - 使用未绑定、停用或其他应用的账户测试拒绝路径，接口应返回 HTTP 400 且不插入点击；缺表应返回 HTTP 503，不得伪装成成功。
-- 使用测试 Android 设备完成安装激活，核对本地腾讯归因、`user_actions/add` 回传结果及腾讯广告后台接收记录；次日留存须通过真实事件测试，不能通过人工改表伪造事件。
+- 使用测试 Android 设备完成安装激活，核对本地腾讯归因、实际已启用的回传协议结果及腾讯广告后台接收记录；次日留存须通过真实事件测试，不能通过人工改表伪造事件。
 - 本次 GitHub Actions 运行的是无数据库的隔离测试；**通过 CI 不等于完成线上 OAuth、数据库、网络或真实转化联调**。
 
 ## 验证
