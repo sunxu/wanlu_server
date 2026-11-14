@@ -67,14 +67,15 @@ namespace {
         && $options['query']['fields'] === '["account_id"]'
         && $options['query']['access_token'] === 'SENSITIVE_ACCESS_TOKEN'
         && strlen($options['query']['nonce']) === 32, 'minimum read-only query');
-    probeCheck(!isset($options['query']['page'])
-        && !isset($options['query']['page_size'])
-        && !isset($options['query']['pagination_mode'])
+    // 132100 regression: even account-scoped queries require pagination.
+    probeCheck($options['query']['pagination_mode'] === 'PAGINATION_MODE_NORMAL'
+        && $options['query']['page'] === 1
+        && $options['query']['page_size'] === 100
         && $options['http_errors'] === false && $options['allow_redirects'] === false,
-        'no unneeded pagination, redirects or Guzzle automatic error');
+        'Tencent requires pagination_mode and page_size for advertiser/get');
     probeCheck(strpos(json_encode($info),'PRIVATE_CORPORATION') === false,
         'do not return corporation name');
-    echo '通过：最小只读查询及响应脱敏' . PHP_EOL;
+    echo '通过：单账户只读查询包含腾讯必需的分页字段、响应脱敏' . PHP_EOL;
 
     $tx->http->responses[] = new \RuntimeException(
         'https://api.e.qq.com/v3.0/advertiser/get?access_token=SENSITIVE_ACCESS_TOKEN'
@@ -87,6 +88,10 @@ namespace {
     probeCheck($e->httpStatus() === 403 && $e->apiCode() === 11002
         && strpos($e->getMessage(), 'SENSITIVE_ACCESS_TOKEN') === false,
         'HTTP and API code only');
+    // Tencent live response 132100 must be observable as a distinct API code.
+    $tx->http->responses[] = [200, response(132100, [], 'missing pagination_mode/page_size')];
+    $e = errorOf($tx, ProbeError::API_REJECTED);
+    probeCheck($e->apiCode() === 132100, 'must retain Tencent parameter error 132100');
     $tx->http->responses[] = [200, response(11000, [], 'SENSITIVE_ACCESS_TOKEN rejected')];
     $e = errorOf($tx, ProbeError::API_REJECTED);
     probeCheck($e->httpStatus() === 200 && $e->apiCode() === 11000,
