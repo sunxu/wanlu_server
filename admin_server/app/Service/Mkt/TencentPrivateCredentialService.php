@@ -27,12 +27,22 @@ class TencentPrivateCredentialService
         $refreshExpiry = $input['refresh_expires_at'] ?? null;
         $now = time();
 
+        foreach (['client_id', 'client_secret', 'access_token', 'refresh_token', 'app_name'] as $key) {
+            if (array_key_exists($key, $input) && !is_string($input[$key])) {
+                throw new RuntimeException('腾讯私有应用凭证字段类型错误');
+            }
+        }
+        if (array_key_exists('replace_existing', $input) && !is_bool($input['replace_existing'])) {
+            throw new RuntimeException('replace_existing 必须是布尔值');
+        }
+
         if (!preg_match('/^[0-9]{1,50}$/D', $clientId)
             || strlen($secret) > 100
             || $access === '' || strlen($access) > 500
             || $refresh === '' || strlen($refresh) > 500
             || !is_int($accessExpiry) || !is_int($refreshExpiry)
             || $accessExpiry <= $now + 60 || $refreshExpiry <= $now + 60
+            || $accessExpiry > 4294967295 || $refreshExpiry > 4294967295
             || $refreshExpiry <= $accessExpiry) {
             throw new RuntimeException('腾讯私有应用凭证字段或真实到期时间无效');
         }
