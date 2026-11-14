@@ -1,5 +1,7 @@
 # 腾讯营销接入与联调
 
+> **私有 Token 导入、真实腾讯广告账户识别、权限验证、安全绑定及验收的完整操作手册**：见 [腾讯私有应用账户绑定操作手册](./tencent-private-account-binding.md)。本文继续保留 DataNexus 点击归因与 Callback 协议细节。
+
 ## 腾讯私有应用 Token + DataNexus Callback（V2，灰度）
 
 > 本文保留原 OAuth + 非 Callback 流程，作为 **未开启灰度的现有链路**。将 App Code 加入 `TX_DATANEXUS_CALLBACK_APPS` 后，才启用本节的新协议。不得只部署代码就直接切换 DataNexus 后台；应在测试环境确认目标 App 已开启鉴权、点击 URL 与凭证正确后再灰度。
@@ -138,7 +140,7 @@ rm -f /opt/jingling/admin_server/runtime/logs/tencent-account-probe-raw.log
 
 ### 真实腾讯广告主权限验证（只读）
 
-现阶段 `lzgjf` 业务 App 下原有广告主均为 `jl`；`uc.mkt_advertiser` 的腾讯 `tx` 记录为 0。腾讯私有 Token 的身份权限只覆盖创建私有应用的 QQ 对应账户；**开发者 client_id 不是广告主 account_id**。必须从腾讯广告账户管理界面取得真实的 `account_id`，不能根据巨量广告主或开发者应用 ID 猜测。
+**历史记录（绑定前）**：`lzgjf` 当时仅有原有 `jl` 广告主；`uc.mkt_advertiser` 的腾讯 `tx` 记录为 0。**更新状态（2026-11-14）**：已通过 `mkt:txPrivateBind --apply` 新增真实腾讯广告主 `94079761`，后续以数据库实时查询为准。腾讯私有 Token 的身份权限只覆盖创建私有应用的 QQ 对应账户；**开发者 client_id 不是广告主 account_id**。必须从腾讯广告账户管理界面取得真实的 `account_id`，不能根据巨量广告主或开发者应用 ID 猜测。
 
 取得真实腾讯广告账户 ID 后，先用 Token 发起一条**只读 GET**，确认该私有 Token 对该广告主确实有访问权限：
 
@@ -158,7 +160,7 @@ php bin/hyperf.php mkt:txPrivateAccountProbe lzgjf "真实腾讯广告账户ID"
 
 ### 已验权腾讯私有账户的安全绑定（2026-11-14）
 
-联调实测腾讯 `GET advertiser/get` 通过，返回 `code=0`、且 `data.list` 唯一账户 `94079761`。私有凭证对应业务 App `lzgjf`。本地尚无 `mkt_account.account_id=94079761` 和 `mkt_advertiser.advertiser_id=94079761`，而当前业务 App 的巨量广告主应原样保留。
+联调实测腾讯 `GET advertiser/get` 通过，返回 `code=0`、且 `data.list` 唯一账户 `94079761`。私有凭证对应业务 App `lzgjf`。**绑定前**本地尚无 `mkt_account.account_id=94079761` 和 `mkt_advertiser.advertiser_id=94079761`；**现已执行 `--apply` 且新增账户/广告主各一条，本地预检通过**。业务 App 的原有巨量广告主保持不变。
 
 新增命令默认**只读预览**：重新使用已入库的腾讯私有 Token 调用 `advertiser/get` 并取得真实 `corporation_name`，确认账户身份、有效凭证及当前数据库所有权，输出拟创建条目，不执行写库：
 
@@ -190,7 +192,7 @@ php bin/hyperf.php mkt:txPrivateBind lzgjf 94079761 --apply
 php bin/hyperf.php mkt:txPrivatePreflight lzgjf
 ```
 
-预检结果仅证明本地绑定、令牌时限及本进程定时任务开关；真实转化前仍需验证点击 `callback_url`、DataNexus 用户行为上报权限与 API Server Callback 开关。上述命令不自动开启灰度。
+**实际验收（2026-11-14）**：`--apply` 返回 `TX_BIND_APPLIED`、`created_account=true`、`created_advertiser=true`；其后 `mkt:txPrivatePreflight lzgjf` 所有 `checks=true`，`enabled_count=1`、`valid_account_count=1`，状态 `LOCAL_PREFLIGHT_PASS__EXTERNAL_INTEGRATION_HOLD`。预检仅证明本地绑定、令牌时限及本进程定时任务开关；真实转化前仍需验证点击 `callback_url`、DataNexus 用户行为上报权限与 API Server Callback 开关。上述命令不自动开启灰度。完整步骤与回执见 [绑定操作手册](./tencent-private-account-binding.md)。
 
 ### Callback 灰度开关、前置条件与回滚
 
