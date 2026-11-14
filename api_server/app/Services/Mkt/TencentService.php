@@ -101,13 +101,19 @@ class TencentService
         $code = (is_int($code) || (is_string($code) && ctype_digit($code))) ? (int)$code : -1;
         $traceId = $response['trace_id'] ?? null;
         $traceId = is_string($traceId) && preg_match('/^[a-zA-Z0-9_\\-]{1,128}$/D', $traceId) ? $traceId : null;
+        $reason = $response['_reason_code'] ?? '';
+        if (!is_string($reason) || !in_array($reason, [
+            'CURL_INIT_FAILED', 'TRANSPORT_FAILED', 'HTTP_NON_200', 'INVALID_JSON',
+        ], true)) {
+            $reason = $code === 0 ? 'SUCCESS' : 'API_REJECTED';
+        }
         Log::info('腾讯 DataNexus Callback', [
             'app_code' => $appCode,
             'mode' => $unauthenticated ? 'HTTP_NO_AUTH' : 'HTTPS_AUTH',
             'code' => $code,
             'trace_id' => $traceId,
             'http_status' => (int)($response['_http_status'] ?? 0),
-            'reason_code' => (string)($response['_reason_code'] ?? ($code === 0 ? 'SUCCESS' : 'API_REJECTED')),
+            'reason_code' => $reason,
         ]);
         return $code === 0;
     }
