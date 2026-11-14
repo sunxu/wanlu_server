@@ -51,11 +51,16 @@ namespace {
     class DB
     {
         public static $row;
+        public static $rows = [];
+        public static $whereCalls = [];
         public static function connection($name) { check($name === 'uc', '腾讯授权必须来自 uc 数据库'); return new class {
-            public function table($name) { return $this; }
+            private $tableName = '';
+            public function table($name) { $this->tableName = $name; return $this; }
             public function join(...$args) { return $this; }
-            public function where(...$args) { return $this; }
-            public function first($columns) { return \DB::$row; }
+            public function where(...$args) { \DB::$whereCalls[] = [$this->tableName, $args]; return $this; }
+            public function first($columns) {
+                return array_key_exists($this->tableName, \DB::$rows) ? \DB::$rows[$this->tableName] : \DB::$row;
+            }
         }; }
     }
     class Log
@@ -69,6 +74,8 @@ namespace {
     require $root . '/admin_server/app/Library/Mkt/MktTx.php';
     require $root . '/admin_server/app/Constants/MktConst.php';
     require $root . '/admin_server/app/Service/Mkt/TencentAuthService.php';
+    require $root . '/admin_server/app/Service/Mkt/TxPrivateCredentialId.php';
+    require $root . '/api_server/app/Services/Mkt/TencentCallbackUrl.php';
     require $root . '/api_server/app/Services/Mkt/TencentClick.php';
     require $root . '/api_server/app/Services/Mkt/TencentService.php';
     require $root . '/api_server/app/Constants/AdConst.php';
@@ -279,18 +286,18 @@ namespace {
             check($parsed[$key] === $required[$key], '腾讯要求的必填宏不可缺少：' . $key);
         }
     };
-    $tests['额外必填宏不改变非 Callback 转化链路'] = function () {
+    $tests['点击保留 DataNexus Callback 且不破坏 OAID'] = function () {
         $params = [
             'advertiser_id' => '123', 'adgroup_id' => '9',
             'click_id' => 'macro-case', 'click_time' => (string)(time() - 10),
             'oaid' => 'OAID-original', 'hash_oaid' => md5('OAID-original'),
             'promoted_object_id' => 'promoted-1',
             'device_os_type' => '0',
-            'callback_url' => 'https://api.e.qq.com/conv?cb=opaque-test',
+            'callback_url' => 'https://api.e.qq.com/conv?cb=opaque-test&conv_id=123',
         ];
         $row = \App\Services\Mkt\TencentClick::normalize($params);
         check($row['oaid'] === 'OAID-original', 'HASH_OAID 宏不能覆盖原 OAID 归因');
-        check($row['callback_url'] === '', '非 Callback 转化流程不能存储/使用腾讯签名回调地址');
+        check($row['callback_url'] === $params['callback_url'], '必须保留下发的 Callback URL');
         check($row['click_id'] === 'macro-case' && $row['account_id'] === '123', '额外宏不能破坏点击归一化');
     };
     $tests['腾讯 OAID 原值和 MD5 不重复哈希'] = function () {
@@ -365,6 +372,71 @@ namespace {
         \DB::$row = null;
         rejects(function () use ($service, $params) { $service->callback('activate', time() - 1, $params); }, '缺失授权记录必须拒绝');
         check(count($service->requests) === 2, '缺失授权记录不得发送回传');
+    };
+    $tests['私有凭证 ID 不含 OAuth 身份且与管理端一致'] = function () {
+        $a = \App\Service\Mkt\TxPrivateCredentialId::fromAppCode('bxllzs');
+        $b = \App\Services\Mkt\TencentService::privateCredentialId('bxllzs');
+        check($a === $b && strlen($a) === 46 && strpos($a, 'txapp_') === 0, '两端凭证 ID 生成规则必须一致');
+        check($a !== \App\Services\Mkt\TencentService::privateCredentialId('lzgjf'), '不同 App 的凭证不得相同');
+        rejects(function () { \App\Service\Mkt\TxPrivateCredentialId::fromAppCode('../invalid'); }, '非法 App Code 不得生成凭证');
+        rejects(function () { \App\Services\Mkt\TencentService::privateCredentialId('Bad'); }, '客户端非法 App Code 必须拒绝');
+    };
+    $tests['Callback 目标必须是腾讯授权的 HTTPS URL'] = function () {
+        $valid = 'https://api.e.qq.com/conv?cb=opaque%2Btext&conv_id=123';
+        \App\Services\Mkt\TencentCallbackUrl::assertPostTarget($valid);
+        \App\Services\Mkt\TencentCallbackUrl::assertClickTarget('http://tracking.e.qq.com/conv?cb=opaque&conv_id=123');
+        foreach ([
+            'http://tracking.e.qq.com/conv?cb=opaque&conv_id=123',
+            'https://api.e.qq.com.evil.test/conv?cb=opaque&conv_id=123',
+            'https://api.e.qq.com@evil.test/conv?cb=opaque&conv_id=123',
+            'https://api.e.qq.com:8443/conv?cb=opaque&conv_id=123',
+            'https://api.e.qq.com/other?cb=opaque&conv_id=123',
+            'https://api.e.qq.com/conv?cb=opaque',
+        ] as $invalid) {
+            rejects(function () use ($invalid) { \App\Services\Mkt\TencentCallbackUrl::assertPostTarget($invalid); }, '恶意 Callback 目标必须拒绝');
+        }
+    };
+    $tests['按 App 读取独立 Token 并使用真正 DataNexus Callback'] = function () {
+        putenv('TX_DATANEXUS_CALLBACK_APPS=demo');
+        $service = new class extends \App\Services\Mkt\TencentService {
+            public $sent = [];
+            protected function requestCallback(string $url, array $payload, string $accessToken): array {
+                $this->sent[] = [$url, $payload, $accessToken];
+                return ['code' => 0, 'trace_id' => 'test-trace'];
+            }
+        };
+        \DB::$rows = [
+            'mkt_advertiser as a' => (object)['extra' => '{}'],
+            'mkt_user as c' => (object)['access_token' => 'private-demo-token', 'access_time' => time() + 2000],
+        ];
+        \DB::$whereCalls = [];
+        $params = [
+            'account_id' => '123', 'app_code' => 'demo', 'click_id' => 'click-private-1',
+            'oaid' => 'OAID-original',
+            'callback_url' => 'https://api.e.qq.com/conv?cb=opaque&conv_id=123',
+        ];
+        $when = time() - 30;
+        check($service->callback('activate', $when, $params) === true, '正确绑定及有效 Token 应可完成 Callback');
+        check(count($service->sent) === 1
+            && $service->sent[0][0] === $params['callback_url']
+            && $service->sent[0][2] === 'private-demo-token', '必须使用实际下发 URL 和当前 App 的 Token');
+        check(array_keys($service->sent[0][1]) === ['actions']
+            && $service->sent[0][1]['actions'][0]['action_type'] === 'ACTIVATE_APP', 'Callback 不能发送非 Callback 行为源字段');
+        check($service->callback('activate', $when, $params) === true
+            && $service->sent[0][1] === $service->sent[1][1], '失败重试必须维持事件幂等标识');
+        $ids = array_values(array_filter(\DB::$whereCalls, function ($item) {
+            return $item[0] === 'mkt_user as c' && $item[1][0] === 'c.user_id';
+        }));
+        check($ids && $ids[0][1][1] === \App\Services\Mkt\TencentService::privateCredentialId('demo'),
+            '不能按 mkt_account.user_id 取 Token');
+        \DB::$rows['mkt_user as c'] = null;
+        rejects(function () use ($service, $params, $when) { $service->callback('activate', $when, $params); }, '缺失私有 Token 必须阻止上报');
+        \DB::$rows['mkt_user as c'] = ['access_token' => 'private-demo-token', 'access_time' => time() + 2000];
+        $params['callback_url'] = 'https://evil.test/conv?cb=opaque&conv_id=123';
+        rejects(function () use ($service, $params, $when) { $service->callback('activate', $when, $params); }, '不能向第三方发送 Token');
+        check(count($service->sent) === 2, '凭证错误或恶意 URL 不得发送网络请求');
+        \DB::$rows = [];
+        putenv('TX_DATANEXUS_CALLBACK_APPS');
     };
     $tests['平台来源与荣耀隔离'] = function () {
         check(\App\Constants\AdConst::PUT_SOURCE_MAP['tx'] === 8 && \App\Constants\AdConst::PUT_SOURCE_MAP['honor'] === 7, '平台来源冲突');
