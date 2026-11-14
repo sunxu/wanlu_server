@@ -130,6 +130,11 @@ class MktTx extends MktAbstract
         $options = [
             'query' => [
                 'account_id' => $accountId,
+                // Tencent advertiser/get requires a pagination mode and page size
+                // even when querying a single advertiser ID.
+                'pagination_mode' => 'PAGINATION_MODE_NORMAL',
+                'page' => 1,
+                'page_size' => 100,
                 'fields' => json_encode(['account_id']),
                 'access_token' => $this->getToken(),
                 'timestamp' => time(),
