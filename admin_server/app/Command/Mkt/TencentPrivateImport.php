@@ -60,6 +60,7 @@ class TencentPrivateImport extends HyperfCommand
                 TencentPrivateImportError::TENCENT_NETWORK_FAILED => '腾讯刷新请求未得到可用响应，请检查网络、TLS、HTTP 状态',
                 TencentPrivateImportError::TENCENT_REFRESH_REJECTED => '腾讯拒绝刷新或响应格式不符合协议，请核对密钥、令牌和生效状态',
                 TencentPrivateImportError::TENCENT_TOKEN_RESPONSE_INVALID => '腾讯返回的 Token 或有效期缺失或不合法',
+                TencentPrivateImportError::DB_READ_FAILED => '数据库预检读取失败，请检查 uc 连接、表结构与只读权限',
                 TencentPrivateImportError::DB_WRITE_FAILED => '数据库写入失败，请检查表结构和数据库错误日志（注意脱敏）',
             ];
             $code = $e->getMessage();
