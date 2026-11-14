@@ -80,6 +80,7 @@ namespace Hyperf\Constants {
 namespace {
     $root = dirname(__DIR__);
     require $root . '/admin_server/app/Constants/MktConst.php';
+    require $root . '/admin_server/app/Service/Mkt/TxPrivateCredentialId.php';
     require $root . '/admin_server/app/Service/Mkt/MktService.php';
     require $root . '/admin_server/app/Controller/Mkt/CommonController.php';
     require $root . '/admin_server/app/Controller/Launch/LadController.php';
