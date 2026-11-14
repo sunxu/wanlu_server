@@ -105,5 +105,38 @@ namespace {
     probeCheck($tx->advertiserProbe('94946190') === [['account_id'=>'12345']],
         'caller must reject identity mismatch');
     echo '通过：响应结构、空账户及账户不匹配的可诊断性' . PHP_EOL;
-    echo '共通过 3 组腾讯广告主远程诊断隔离测试。' . PHP_EOL;
+
+    // Explicit single-process raw debug: original query including test token,
+    // actual HTTP status, headers and raw body are written to a dedicated log.
+    $tmpBase = sys_get_temp_dir() . '/tx-probe-raw-test-' . bin2hex(random_bytes(8));
+    define('BASE_PATH', $tmpBase);
+    putenv('TX_ACCOUNT_PROBE_RAW_LOG=1');
+    $secretTest = 'SENSITIVE_TEST_ACCESS_DO_NOT_EXPOSE';
+    $debugTx = (new ProbeTx())->setToken($secretTest);
+    $debugRaw = response(11012, ['list'=>[]], 'ORIGINAL_REMOTE_MESSAGE');
+    $debugTx->http->responses[] = [403, $debugRaw];
+    errorOf($debugTx, ProbeError::HTTP_FAILED);
+    $rawLog = $tmpBase . '/runtime/logs/tencent-account-probe-raw.log';
+    probeCheck(is_file($rawLog), 'opt-in raw log file must be created');
+    $logText = file_get_contents($rawLog);
+    probeCheck(strpos($logText, $secretTest) !== false
+        && strpos($logText, $debugRaw) !== false
+        && strpos($logText, 'HTTP_STATUS=403') !== false
+        && strpos($logText, 'phase=REQUEST') !== false
+        && strpos($logText, 'phase=RESPONSE') !== false,
+        'opt-in log must include full request and raw response');
+    probeCheck((fileperms($rawLog) & 0777) === 0600,
+        'raw log must have local file permissions 0600');
+    $debugTx->http->responses[] = new \RuntimeException('ORIGINAL_TRANSPORT_ERROR ' . $secretTest);
+    errorOf($debugTx, ProbeError::NETWORK_FAILED);
+    $logText = file_get_contents($rawLog);
+    probeCheck(strpos($logText, 'ORIGINAL_TRANSPORT_ERROR ' . $secretTest) !== false,
+        'raw transport exception must be logged for debugging');
+    putenv('TX_ACCOUNT_PROBE_RAW_LOG');
+    unlink($rawLog);
+    rmdir($tmpBase . '/runtime/logs');
+    rmdir($tmpBase . '/runtime');
+    rmdir($tmpBase);
+    echo '通过：显式原始日志记录真实请求响应和异常，默认关闭' . PHP_EOL;
+    echo '共通过 4 组腾讯广告主远程诊断隔离测试。' . PHP_EOL;
 }
