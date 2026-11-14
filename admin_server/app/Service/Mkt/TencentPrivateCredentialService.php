@@ -18,7 +18,11 @@ class TencentPrivateCredentialService
 {
     public function import(string $appCode, array $input): string
     {
-        $userId = TxPrivateCredentialId::fromAppCode($appCode);
+        try {
+            $userId = TxPrivateCredentialId::fromAppCode($appCode);
+        } catch (\InvalidArgumentException $e) {
+            throw new TencentPrivateImportError(TencentPrivateImportError::INVALID_INPUT);
+        }
         foreach (['client_id', 'client_secret', 'refresh_token'] as $key) {
             if (!isset($input[$key]) || !is_string($input[$key])) {
                 throw new TencentPrivateImportError(TencentPrivateImportError::INVALID_INPUT);
@@ -41,25 +45,33 @@ class TencentPrivateCredentialService
         if (strlen($secret) > 100) {
             throw new TencentPrivateImportError(TencentPrivateImportError::SECRET_STORAGE_LIMIT);
         }
-        if (!App::query()->where('app_code', $appCode)->where('status', 1)->exists()) {
-            throw new TencentPrivateImportError(TencentPrivateImportError::APP_NOT_ACTIVE);
-        }
-
-        // 调用腾讯刷新接口之前先检查归属，防止无意义刷新和替换。
-        $developer = MktApp::find($clientId);
-        if ($developer && ($developer->platform !== MktConst::PLATFORM_TX
-                || !hash_equals((string)$developer->app_secret, $secret))) {
-            throw new TencentPrivateImportError(TencentPrivateImportError::DEVELOPER_APP_CONFLICT);
-        }
-        $existing = MktUser::find($userId);
-        if ($existing && ((string)$existing->app_id !== $clientId || !$replace)) {
-            throw new TencentPrivateImportError(TencentPrivateImportError::CREDENTIAL_ALREADY_EXISTS);
-        }
-        foreach (MktUser::query()->where('app_id', $clientId)->get(['user_id', 'refresh_token']) as $other) {
-            if ((string)$other->user_id !== $userId
-                && hash_equals((string)$other->refresh_token, $refresh)) {
-                throw new TencentPrivateImportError(TencentPrivateImportError::TOKEN_ALREADY_BOUND);
+        try {
+            if (!App::query()->where('app_code', $appCode)->where('status', 1)->exists()) {
+                throw new TencentPrivateImportError(TencentPrivateImportError::APP_NOT_ACTIVE);
             }
+    
+            // 调用腾讯刷新接口之前先检查归属，防止无意义刷新和替换。
+            $developer = MktApp::find($clientId);
+            if ($developer && ($developer->platform !== MktConst::PLATFORM_TX
+                    || !hash_equals((string)$developer->app_secret, $secret))) {
+                throw new TencentPrivateImportError(TencentPrivateImportError::DEVELOPER_APP_CONFLICT);
+            }
+            $existing = MktUser::find($userId);
+            if ($existing && ((string)$existing->app_id !== $clientId || !$replace)) {
+                throw new TencentPrivateImportError(TencentPrivateImportError::CREDENTIAL_ALREADY_EXISTS);
+            }
+            foreach (MktUser::query()->where('app_id', $clientId)->get(['user_id', 'refresh_token']) as $other) {
+                if ((string)$other->user_id !== $userId
+                    && hash_equals((string)$other->refresh_token, $refresh)) {
+                    throw new TencentPrivateImportError(TencentPrivateImportError::TOKEN_ALREADY_BOUND);
+                }
+            }
+    
+        } catch (TencentPrivateImportError $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            // 数据库连接/字段/SQL 错误可能含敏感信息；仅返回固定分类。
+            throw new TencentPrivateImportError(TencentPrivateImportError::DB_READ_FAILED);
         }
 
         // 刷新成功同时验证 Refresh Token 可以使用，取得腾讯实际 Access Token 与剩余寿命。
