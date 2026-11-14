@@ -124,7 +124,7 @@ namespace {
         'missing real account must block local preflight');
     echo '通过：缺失真实账户绑定时保持 HOLD' . PHP_EOL;
 
-    $GLOBALS['tx_cron_enabled'] = false;
+    $GLOBALS['tx_cron_enabled'] = 'false';
     MktAccount::$records = [record(['account_id'=>'998877','is_valid'=>1])];
     $r = json_decode(inspect(), true);
     check($r['status'] === 'LOCAL_PREFLIGHT_HOLD'
