@@ -41,6 +41,11 @@ class TencentClick
             }
             return preg_match('/^[a-f0-9]{32}$/iD', $value) ? strtolower($value) : md5($value);
         };
+        // 保留腾讯真实下发的 Callback，不能再丢弃；空值兼容旧的非 Callback 链路。
+        $callbackUrl = (string)($params['callback_url'] ?? '');
+        if ($callbackUrl !== '') {
+            TencentCallbackUrl::assertClickTarget($callbackUrl);
+        }
         $data = [
             'account_id' => (string)$params['advertiser_id'],
             'aid' => (string)$params['adgroup_id'],
@@ -54,7 +59,7 @@ class TencentClick
             'ua' => (string)($params['user_agent'] ?? ''),
             'ts' => $time,
             'os' => 0,
-            'callback_url' => '',
+            'callback_url' => $callbackUrl,
             'create_time' => time(),
         ];
         if ($data['imei'] === '' && $data['oaid'] === '' && $data['android_id'] === '') {
