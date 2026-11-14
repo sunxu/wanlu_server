@@ -10,15 +10,27 @@ use Log;
 
 class TencentService
 {
+    /**
+     * 直接按点击记录中原样保存的 __CALLBACK__ 选择上报协议。
+     * 只有没有 Callback URL 的历史记录才沿用独立行为源接口。
+     * 非空但非法的 URL 一律拒绝，绝不能回退到 legacyCallback。
+     */
     public function callback(string $event, int $time, array $params): bool
     {
-        $appCode = (string)($params['app_code'] ?? '');
-        if (!$this->callbackEnabled($appCode)) {
+        $url = $params['callback_url'] ?? null;
+        if ($url === null || $url === '') {
             return $this->legacyCallback($event, $time, $params);
         }
+
+        $appCode = (string)($params['app_code'] ?? '');
         try {
-            return $this->privateCallback($event, $time, $params);
-        } catch (\Throwable $e) {
+            if (!is_string($url)) {
+                throw new \\InvalidArgumentException('腾讯 Callback URL 类型无效');
+            }
+            // 从真实点击读取目标 URL；先验证白名单，再进入两种 Callback 分支。
+            TencentCallbackUrl::assertClickTarget($url);
+            return $this->datanexusCallback($event, $time, $params);
+        } catch (\\Throwable $e) {
             // 日志只保留固定分类；禁止记录 cb、Token、设备标识或任意异常消息。
             Log::info('腾讯 Callback 预检失败', [
                 'app_code' => $appCode,
@@ -26,15 +38,6 @@ class TencentService
             ]);
             throw $e;
         }
-    }
-
-    protected function callbackEnabled(string $appCode): bool
-    {
-        $allowed = getenv('TX_DATANEXUS_CALLBACK_APPS');
-        if ($allowed === false) {
-            $allowed = $_ENV['TX_DATANEXUS_CALLBACK_APPS'] ?? ($_SERVER['TX_DATANEXUS_CALLBACK_APPS'] ?? '');
-        }
-        return $appCode !== '' && in_array($appCode, array_map('trim', explode(',', (string)$allowed)), true);
     }
 
     public static function privateCredentialId(string $appCode): string
@@ -46,10 +49,10 @@ class TencentService
     }
 
     /**
-     * 仅显式灰度 App 使用点击下发的 __CALLBACK__。
+     * 只要点击记录有合法 __CALLBACK__，即按目标协议使用 Callback。
      * HTTP tracking 关闭鉴权时不读取、不发送 Token；HTTPS api.e.qq.com 才取私有 Token。
      */
-    protected function privateCallback(string $event, int $time, array $params): bool
+    protected function datanexusCallback(string $event, int $time, array $params): bool
     {
         $appCode = (string)($params['app_code'] ?? '');
         $accountId = (string)($params['account_id'] ?? '');
