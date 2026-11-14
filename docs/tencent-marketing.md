@@ -74,6 +74,62 @@ SELECT user_id, app_id, FROM_UNIXTIME(access_time) AS access_expires_at
 
 该命令会尝试真实腾讯刷新接口：如收到失败代码，重新确认原因后再执行，避免频繁重置 Token。为保护敏感凭证，不要将完整命令行参数、数据库 Secret 或 API Query String 复制到工单/聊天。
 
+### 私有 Token 入库后的只读预检与自动续期保障
+
+`mkt:txPrivateImport` 显示导入成功、SQL 返回一条有效 Token 记录，只能说明凭证已存储且腾讯刷新接口曾成功响应，**不代表广告主绑定、Callback 和定时刷新已全部验收**。
+
+执行本地只读预检（**不刷新 Token、不发送腾讯请求、不写库、不启用灰度**）：
+
+```bash
+cd admin_server
+php bin/hyperf.php mkt:txPrivatePreflight lzgjf
+```
+
+预检仅打印 `checks`、`expiry`、`advertisers`、`warnings`、`unverified`、`status` 等非敏感信息，绝不会展示 Token/Secret。必须重点检查：
+
+- `crontab_config_enabled=true`：仅表示**当前 CLI 配置**启用调度。还要通过部署平台确认运行中的 CrontabDispatcher 以及 `MktProcess` 异步队列消费者实际健康，且异步队列使用 `mkt` 通道。
+- `has_enabled_tx_advertiser=true` 且 `every_advertiser_account_valid=true`：`uc.mkt_advertiser` 必须有真实腾讯广告主 `app_code=lzgjf, platform=tx, status=1`，并关联 `uc.mkt_account.account_id` 对应的 `is_valid=1` 账户。命令**只查不补**，不会伪造 OAuth 用户、账户或广告主。
+- `expiry`：腾讯返回的 Access/Refresh Token 有效期可能由开发者设置决定。若两者到期时间相同，给出 `REFRESH_EXPIRES_NOT_LATER_THAN_ACCESS` 风险提示，应到腾讯开发者平台核对配置。
+- `LOCAL_PREFLIGHT_PASS__EXTERNAL_INTEGRATION_HOLD` 仅意味着本地凭证、绑定与当前 CLI 定时任务开关通过；仍未实际核实消费者运行、腾讯账户范围、API Server 灰度环境、Callback URL、点击入库及真实转化回传。**不能据此直接开启生产 Callback。**
+
+自动刷新调度每10分钟检查一次。历史平台仍在到期前20分钟入队；对于 `txapp_` + 40 位 SHA1 的**腾讯私有凭证**，增加提前 **24 小时**入队（当 Access Token 或已知 Refresh Token 到期时间触达该窗口时）。重复命中只入队一次；真正刷新仍由现有 `mkt` 队列执行。此修改不代表定时器或消费者已经在线运行；禁止通过反复重置私有 Token 验证它。
+
+上线前针对账户归属的安全只读 SQL：
+
+```sql
+SELECT a.advertiser_id, a.account_id, a.app_code, a.platform,
+       a.status AS advertiser_status, b.is_valid AS account_valid
+FROM uc.mkt_advertiser AS a
+LEFT JOIN uc.mkt_account AS b ON b.account_id = a.account_id
+WHERE a.app_code = 'lzgjf' AND a.platform = 'tx';
+
+-- 在业务库（不是 uc）核查实际点击分表和 Callback 字段
+SHOW FULL COLUMNS FROM app_lzgjf_tx LIKE 'callback_url';
+SHOW INDEX FROM app_lzgjf_tx;
+```
+
+`app_lzgjf_tx.callback_url` 需能完整存储实际 `__CALLBACK__`（目前代码验证上限2048字节，实际库字段要匹配），并需要检查真实点击是否保存合法的 Callback URL。联调前先用实际点击样本核实 Tencent Callback URL 的域名、协议和参数与当前允许列表吻合；不要用伪造 URL 作生产写入或回传验证。若还未确认账户绑定及官方 Callback URL，则继续保持 `TX_DATANEXUS_CALLBACK_APPS` 关闭。
+
+### 真实腾讯广告主权限验证（只读）
+
+现阶段 `lzgjf` 业务 App 下原有广告主均为 `jl`；`uc.mkt_advertiser` 的腾讯 `tx` 记录为 0。腾讯私有 Token 的身份权限只覆盖创建私有应用的 QQ 对应账户；**开发者 client_id 不是广告主 account_id**。必须从腾讯广告账户管理界面取得真实的 `account_id`，不能根据巨量广告主或开发者应用 ID 猜测。
+
+取得真实腾讯广告账户 ID 后，先用 Token 发起一条**只读 GET**，确认该私有 Token 对该广告主确实有访问权限：
+
+```bash
+cd admin_server
+php bin/hyperf.php mkt:txPrivateAccountProbe lzgjf "真实腾讯广告账户ID"
+```
+
+这条命令从现有 `uc.mkt_user` 读取 `txapp_` 私有 Access Token，仅访问腾讯 `GET /v3.0/advertiser/get`，核验返回的 `account_id` 与所填身份一致。输出固定状态代码和本地占用情况，不打印 Token、Secret 或完整请求 URL；不会刷新令牌、写入账户/广告主、启用灰度或发送转化。
+
+- `REMOTE_ACCESS_PASS__MANUAL_BINDING_REQUIRED`：Token 可查询该腾讯广告主，本地尚需审核真实账户归属和绑定方式；**不能表示已自动创建账户**。
+- `REMOTE_ACCESS_PASS__EXISTING_OWNERSHIP_HOLD`：系统全局 `advertiser_id` 已归属其他业务 App/平台；禁止直接覆盖。
+- `TX_ACCOUNT_PROBE_REMOTE_ADVERTISER_GET_FAILED`：腾讯 API 请求失败、权限不足或响应格式不符等（故意不输出原始错误），需要在腾讯开发者后台核对身份/权限。
+- `TX_ACCOUNT_PROBE_ACCESS_TOKEN_EXPIRED`：Access Token 已临期，不自动刷新；排查定时任务。
+
+私有 Token 成功访问指定广告账户，不代表用户行为上报权限已开通。后续须分别核对 `mkt_account.account_id/is_valid/user_id` 与 `mkt_advertiser.advertiser_id/account_id/app_code/platform/status`，**不能复用或覆盖现有巨量 OAuth 账户 ID 和 user_id，也不允许创建虚构 OAuth 身份**。账户绑定是后续独立的、需核实真实身份和权限的步骤。
+
 ### Callback 灰度开关、前置条件与回滚
 
 在 `api_server` 进程环境中配置 `TX_DATANEXUS_CALLBACK_APPS=bxllzs,lzgjf`（仅写入准备启用的 App，默认空）；启动或重启进程以加载配置。
