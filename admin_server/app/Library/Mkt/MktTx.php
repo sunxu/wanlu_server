@@ -140,14 +140,34 @@ class MktTx extends MktAbstract
             'http_errors' => false,
             'allow_redirects' => false,
         ];
+        // Opt-in single-run raw diagnostic log. Includes the real access token,
+        // complete query, raw HTTP body and transport exception for local debugging.
+        // Never enables logging for other Tencent API methods.
+        $rawDebug = getenv('TX_ACCOUNT_PROBE_RAW_LOG') === '1';
+        $rawTrace = $rawDebug ? bin2hex(random_bytes(6)) : '';
+        if ($rawDebug) {
+            $this->writeAdvertiserProbeRawLog($rawTrace, 'REQUEST',
+                'GET https://api.e.qq.com/v3.0/advertiser/get?'
+                . http_build_query($options['query'], '', '&', PHP_QUERY_RFC3986)
+                . "\nOPTIONS=" . var_export($options, true));
+        }
         try {
             $response = $this->getClient()->request(
                 'GET', '/v3.0/advertiser/get', $options
             );
             $status = (int)$response->getStatusCode();
             $raw = (string)$response->getBody();
+            if ($rawDebug) {
+                $headers = method_exists($response, 'getHeaders')
+                    ? var_export($response->getHeaders(), true) : 'unavailable';
+                $this->writeAdvertiserProbeRawLog($rawTrace, 'RESPONSE',
+                    "HTTP_STATUS=" . $status . "\nHEADERS=" . $headers . "\nRAW_BODY=\n" . $raw);
+            }
         } catch (\Throwable $e) {
-            // Guzzle transport exceptions may contain full URLs with credentials.
+            if ($rawDebug) {
+                $this->writeAdvertiserProbeRawLog($rawTrace, 'TRANSPORT_EXCEPTION',
+                    get_class($e) . ": " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            }
             throw new TencentAdvertiserProbeError(TencentAdvertiserProbeError::NETWORK_FAILED);
         }
         // Only numeric status and numeric API error code may leave this method.
@@ -187,6 +207,31 @@ class MktTx extends MktAbstract
             $result[] = ['account_id' => (string)$item['account_id']];
         }
         return $result;
+    }
+
+    /**
+     * Temporary opt-in raw integration log, isolated to the account probe.
+     * Contains sensitive parameters and unmodified remote response bytes.
+     */
+    private function writeAdvertiserProbeRawLog(string $trace, string $phase, string $details): void
+    {
+        $directory = BASE_PATH . '/runtime/logs';
+        if (!is_dir($directory) && !@mkdir($directory, 0700, true) && !is_dir($directory)) {
+            return;
+        }
+        $logFile = $directory . '/tencent-account-probe-raw.log';
+        $entry = '[' . date('c') . ' pid=' . getmypid()
+            . ' trace=' . $trace . ' phase=' . $phase . "]\n"
+            . $details . "\n\n";
+        $oldMask = umask(0077);
+        try {
+            @file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
+            if (is_file($logFile)) {
+                @chmod($logFile, 0600);
+            }
+        } finally {
+            umask($oldMask);
+        }
     }
 
     public function advertiserGet(string $accountId)
