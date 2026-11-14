@@ -25,12 +25,12 @@ class TencentService
         $appCode = (string)($params['app_code'] ?? '');
         try {
             if (!is_string($url)) {
-                throw new \\InvalidArgumentException('腾讯 Callback URL 类型无效');
+                throw new \InvalidArgumentException('腾讯 Callback URL 类型无效');
             }
             // 从真实点击读取目标 URL；先验证白名单，再进入两种 Callback 分支。
             TencentCallbackUrl::assertClickTarget($url);
             return $this->datanexusCallback($event, $time, $params);
-        } catch (\\Throwable $e) {
+        } catch (\Throwable $e) {
             // 日志只保留固定分类；禁止记录 cb、Token、设备标识或任意异常消息。
             Log::info('腾讯 Callback 预检失败', [
                 'app_code' => $appCode,
