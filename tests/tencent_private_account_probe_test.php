@@ -161,13 +161,13 @@ namespace {
     expectCode(function () use ($p) { $p->handle(); },
         'TX_ACCOUNT_PROBE_REMOTE_ADVERTISER_GET_FAILED');
     // Upstream API status and Tencent's numeric code are safe; freeform body is not.
-    $p = probe('lzgjf','998877',new \\App\\Library\\Mkt\\TencentAdvertiserProbeError(
-        \\App\\Library\\Mkt\\TencentAdvertiserProbeError::API_REJECTED, 200, 11002
+    $p = probe('lzgjf','998877',new \App\Library\Mkt\TencentAdvertiserProbeError(
+        \App\Library\Mkt\TencentAdvertiserProbeError::API_REJECTED, 200, 11002
     ));
     expectCode(function () use ($p) { $p->handle(); },
         'TX_ACCOUNT_PROBE_API_REJECTED HTTP_STATUS=200 API_CODE=11002');
-    $p = probe('lzgjf','998877',new \\App\\Library\\Mkt\\TencentAdvertiserProbeError(
-        \\App\\Library\\Mkt\\TencentAdvertiserProbeError::HTTP_FAILED, 403, 11000
+    $p = probe('lzgjf','998877',new \App\Library\Mkt\TencentAdvertiserProbeError(
+        \App\Library\Mkt\TencentAdvertiserProbeError::HTTP_FAILED, 403, 11000
     ));
     expectCode(function () use ($p) { $p->handle(); },
         'TX_ACCOUNT_PROBE_HTTP_FAILED HTTP_STATUS=403 API_CODE=11000');
