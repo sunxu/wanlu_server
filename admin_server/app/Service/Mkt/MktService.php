@@ -176,7 +176,8 @@ class MktService
 
         if (TxPrivateCredentialId::isPrivate($userId)) {
             if ($model->app->platform !== MktConst::PLATFORM_TX
-                || !$refreshToken || (int)$model->refresh_time <= time()) {
+                || !$refreshToken
+                || ((int)$model->refresh_time > 0 && (int)$model->refresh_time <= time())) {
                 throw new Exception('腾讯私有应用刷新凭证无效或已过期');
             }
             $oldAccess = (string)$model->access_token;
@@ -189,9 +190,9 @@ class MktService
             if (!empty($new['refresh_token'])) {
                 $update['refresh_token'] = $new['refresh_token'];
             }
-            if (!empty($new['refresh_time'])) {
-                $update['refresh_time'] = $new['refresh_time'];
-            }
+            // 腾讯刷新响应没有 refresh_token_expires_in 时，0 标记“未知”，
+            // 不能用旧的已过时限或默认 30 天冒充这次刷新后的真实有效期。
+            $update['refresh_time'] = isset($new['refresh_time']) ? (int)$new['refresh_time'] : 0;
             // 乐观锁：并发刷新或后台重新导入后不得用旧请求覆盖新凭证。
             $updated = MktUser::query()
                 ->where('user_id', $userId)
