@@ -12,6 +12,111 @@ class TencentService
 {
     public function callback(string $event, int $time, array $params): bool
     {
+        $appCode = (string)($params['app_code'] ?? '');
+        if ($this->callbackEnabled($appCode)) {
+            return $this->privateCallback($event, $time, $params);
+        }
+        return $this->legacyCallback($event, $time, $params);
+    }
+
+    protected function callbackEnabled(string $appCode): bool
+    {
+        $allowed = getenv('TX_DATANEXUS_CALLBACK_APPS');
+        if ($allowed === false) {
+            $allowed = $_ENV['TX_DATANEXUS_CALLBACK_APPS'] ?? ($_SERVER['TX_DATANEXUS_CALLBACK_APPS'] ?? '');
+        }
+        return $appCode !== '' && in_array($appCode, array_map('trim', explode(',', (string)$allowed)), true);
+    }
+
+    public static function privateCredentialId(string $appCode): string
+    {
+        if (!preg_match('/^[a-z0-9_]{1,50}$/D', $appCode)) {
+            throw new Exception('腾讯业务 App 标识无效');
+        }
+        return 'txapp_' . sha1($appCode);
+    }
+
+    protected function privateCallback(string $event, int $time, array $params): bool
+    {
+        $appCode = (string)($params['app_code'] ?? '');
+        $accountId = (string)($params['account_id'] ?? '');
+        $credentialId = self::privateCredentialId($appCode);
+        if (!ctype_digit($accountId) || $accountId === '0') {
+            throw new Exception('腾讯广告主 ID 无效');
+        }
+        // 第一次查询仅验证账户及广告主绑定。不能沿 mkt_account.user_id 读取 Token。
+        $account = DB::connection('uc')->table('mkt_advertiser as a')
+            ->join('mkt_account as b', 'b.account_id', '=', 'a.account_id')
+            ->where('a.advertiser_id', $accountId)
+            ->where('a.app_code', $appCode)->where('a.status', 1)
+            ->where('a.platform', AdConst::PUT_SOURCE_TX)
+            ->where('b.is_valid', 1)
+            ->first(['a.extra']);
+        $account = is_object($account) ? (array)$account : (is_array($account) ? $account : []);
+        if (!$account) {
+            throw new Exception('腾讯广告主与业务 App 未绑定或账户无效');
+        }
+        $credential = DB::connection('uc')->table('mkt_user as c')
+            ->join('mkt_app as d', 'd.app_id', '=', 'c.app_id')
+            ->where('c.user_id', $credentialId)->where('d.platform', AdConst::PUT_SOURCE_TX)
+            ->first(['c.access_token', 'c.access_time']);
+        $credential = is_object($credential) ? (array)$credential : (is_array($credential) ? $credential : []);
+        if (empty($credential['access_token']) || (int)($credential['access_time'] ?? 0) <= time() + 60) {
+            throw new Exception('腾讯私有应用 Token 缺失或即将过期');
+        }
+        $callbackUrl = (string)($params['callback_url'] ?? '');
+        TencentCallbackUrl::assertPostTarget($callbackUrl);
+        $extra = $account['extra'] ?? [];
+        if (is_string($extra)) {
+            $extra = json_decode($extra, true);
+        }
+        $payload = $this->callbackPayload($event, $time, $params, is_array($extra) ? $extra : []);
+        $response = $this->requestCallback($callbackUrl, $payload, $credential['access_token']);
+        Log::info('腾讯 DataNexus Callback', [
+            'app_code' => $appCode, 'advertiser_id' => $accountId,
+            'code' => $response['code'] ?? -1, 'trace_id' => $response['trace_id'] ?? null,
+        ]);
+        return (int)($response['code'] ?? -1) === 0;
+    }
+
+    protected function requestCallback(string $url, array $payload, string $accessToken): array
+    {
+        TencentCallbackUrl::assertPostTarget($url);
+        $handle = curl_init($url);
+        if ($handle === false) {
+            return [];
+        }
+        curl_setopt_array($handle, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'access-token: ' . $accessToken,
+                'timestamp: ' . time(),
+                'nonce: ' . bin2hex(random_bytes(16)),
+                'cache-control: no-cache',
+            ],
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_MAXREDIRS => 0,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+        ]);
+        $raw = curl_exec($handle);
+        $httpCode = curl_getinfo($handle, CURLINFO_HTTP_CODE);
+        curl_close($handle);
+        if ($raw === false || (int)$httpCode !== 200) {
+            return [];
+        }
+        $data = json_decode($raw, true);
+        return is_array($data) ? $data : [];
+    }
+
+    protected function legacyCallback(string $event, int $time, array $params): bool
+    {
         // 使用当前绑定和扩展配置，避免刚保存的行为源配置被旧账户缓存遮蔽。
         $auth = DB::connection('uc')->table('mkt_advertiser as a')
             ->join('mkt_account as b', 'b.account_id', '=', 'a.account_id')
@@ -47,6 +152,11 @@ class TencentService
         return (array)json_decode($result['result'] ?? '', true);
     }
 
+    public function callbackPayload(string $event, int $time, array $params, array $extra): array
+    {
+        return ['actions' => [$this->makeAction($event, $time, $params, $extra)]];
+    }
+
     public function payload(string $event, int $time, array $params, array $extra): array
     {
         $accountId = (string)($params['account_id'] ?? '');
@@ -54,6 +164,16 @@ class TencentService
         $clickId = (string)($params['click_id'] ?? '');
         if (!ctype_digit($accountId) || (int)$accountId <= 0 || !ctype_digit($setId) || (int)$setId <= 0 || $clickId === '' || strlen($clickId) > 64 || $time <= 0) {
             throw new Exception('腾讯回传缺少有效账户、行为源、点击标识或事件时间');
+        }
+        return ['account_id' => (int)$accountId, 'user_action_set_id' => (int)$setId,
+            'actions' => [$this->makeAction($event, $time, $params, $extra)]];
+    }
+
+    protected function makeAction(string $event, int $time, array $params, array $extra): array
+    {
+        $clickId = (string)($params['click_id'] ?? '');
+        if ($clickId === '' || strlen($clickId) > 64 || $time <= 0 || $time > 2147483647) {
+            throw new Exception('腾讯 Callback 缺少有效点击标识或事件时间');
         }
         $types = ['activate' => 'ACTIVATE_APP', 'keep1' => 'START_APP', 'key_action' => $extra['key_action_type'] ?? '', 'add_desktop' => $extra['key_action_type'] ?? 'ADD_DESKTOP'];
         $type = $types[$event] ?? '';
@@ -93,6 +213,6 @@ class TencentService
             }
             $action['custom_action'] = $custom;
         }
-        return ['account_id' => (int)$accountId, 'user_action_set_id' => (int)$setId, 'actions' => [$action]];
+        return $action;
     }
 }
