@@ -85,6 +85,7 @@ namespace {
 
     $root = dirname(__DIR__);
     require $root . '/admin_server/app/Service/Mkt/TxPrivateCredentialId.php';
+    require $root . '/admin_server/app/Library/Mkt/TencentAdvertiserProbeError.php';
     require $root . '/admin_server/app/Command/Mkt/TencentPrivateAccountProbe.php';
 
     class FakeProbe extends \App\Command\Mkt\TencentPrivateAccountProbe {
@@ -159,6 +160,19 @@ namespace {
     ));
     expectCode(function () use ($p) { $p->handle(); },
         'TX_ACCOUNT_PROBE_REMOTE_ADVERTISER_GET_FAILED');
+    // Upstream API status and Tencent's numeric code are safe; freeform body is not.
+    $p = probe('lzgjf','998877',new \\App\\Library\\Mkt\\TencentAdvertiserProbeError(
+        \\App\\Library\\Mkt\\TencentAdvertiserProbeError::API_REJECTED, 200, 11002
+    ));
+    expectCode(function () use ($p) { $p->handle(); },
+        'TX_ACCOUNT_PROBE_API_REJECTED HTTP_STATUS=200 API_CODE=11002');
+    $p = probe('lzgjf','998877',new \\App\\Library\\Mkt\\TencentAdvertiserProbeError(
+        \\App\\Library\\Mkt\\TencentAdvertiserProbeError::HTTP_FAILED, 403, 11000
+    ));
+    expectCode(function () use ($p) { $p->handle(); },
+        'TX_ACCOUNT_PROBE_HTTP_FAILED HTTP_STATUS=403 API_CODE=11000');
+    echo '通过：上游安全数字错误码可用于排查账户权限' . PHP_EOL;
+
     $p = probe('lzgjf','1112045194');
     MktUser::$records[$id]->access_time = $now - 1;
     expectCode(function () use ($p) { $p->handle(); },
@@ -168,5 +182,5 @@ namespace {
     expectCode(function () use ($p) { $p->handle(); },
         'TX_ACCOUNT_PROBE_INVALID_ACCOUNT_ID');
     echo '通过：远端身份不匹配、拒绝、过期及无效输入均安全拒绝' . PHP_EOL;
-    echo '共通过 3 组腾讯私有账户权限探测测试。' . PHP_EOL;
+    echo '共通过 4 组腾讯私有账户权限探测测试。' . PHP_EOL;
 }
