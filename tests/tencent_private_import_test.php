@@ -190,5 +190,44 @@ namespace {
     rejectsWithCode(function () use ($svc) { $svc->import('bxllzs', params('unused-refresh', true)); },
         \App\Service\Mkt\TencentPrivateImportError::TENCENT_NETWORK_FAILED);
     echo '通过：结构化安全失败代码与密钥脱敏' . PHP_EOL;
-    echo '共通过 9 组腾讯私有 Token 导入测试。' . PHP_EOL;
+    // 腾讯分别返回 Access / Refresh TTL。刷新令牌可能先于访问令牌过期：
+    // 只要两者尚有效，不能要求 refresh_time > access_time。
+    $svc->responses[] = [
+        'access_token' => 'access-short-refresh',
+        'access_time' => $now + 3600,
+        'refresh_time' => $now + 1800,
+    ];
+    $svc->import('bxllzs', params('refresh-short', true));
+    check(MktUser::find($id)->access_time === $now + 3600
+        && MktUser::find($id)->refresh_time === $now + 1800,
+        '有效 Refresh Token 不应因寿命短于 Access Token 而被拒绝');
+    echo '通过：允许 Refresh Token 有效期短于 Access Token' . PHP_EOL;
+
+    // 不携带真实 Token 和原始响应，仅输出固定分类代码。
+    $previousAccess = MktUser::find($id)->access_token;
+    $svc->responses[] = ['access_token' => '', 'access_time' => $now + 3600];
+    rejectsWithCode(function () use ($svc) { $svc->import('bxllzs', params('refresh-invalid-1', true)); },
+        \App\Service\Mkt\TencentPrivateImportError::TENCENT_ACCESS_TOKEN_INVALID);
+    $svc->responses[] = ['access_token' => 'access-exp-missing'];
+    rejectsWithCode(function () use ($svc) { $svc->import('bxllzs', params('refresh-invalid-2', true)); },
+        \App\Service\Mkt\TencentPrivateImportError::TENCENT_ACCESS_EXPIRY_INVALID);
+    $svc->responses[] = ['access_token' => 'access-exp-short', 'access_time' => $now + 15];
+    rejectsWithCode(function () use ($svc) { $svc->import('bxllzs', params('refresh-invalid-3', true)); },
+        \App\Service\Mkt\TencentPrivateImportError::TENCENT_ACCESS_EXPIRY_TOO_SOON);
+    $svc->responses[] = [
+        'access_token' => 'access-refresh-exp-bad', 'access_time' => $now + 3600,
+        'refresh_time' => -1,
+    ];
+    rejectsWithCode(function () use ($svc) { $svc->import('bxllzs', params('refresh-invalid-4', true)); },
+        \App\Service\Mkt\TencentPrivateImportError::TENCENT_REFRESH_EXPIRY_INVALID);
+    $svc->responses[] = [
+        'access_token' => 'access-refresh-exp-soon', 'access_time' => $now + 3600,
+        'refresh_time' => $now + 5,
+    ];
+    rejectsWithCode(function () use ($svc) { $svc->import('bxllzs', params('refresh-invalid-5', true)); },
+        \App\Service\Mkt\TencentPrivateImportError::TENCENT_REFRESH_EXPIRY_TOO_SOON);
+    check(MktUser::find($id)->access_token === $previousAccess,
+        'Token 响应校验失败时不得覆盖数据库凭证');
+    echo '通过：分项有效期失败代码可诊断且不会修改既有 Token' . PHP_EOL;
+    echo '共通过 11 组腾讯私有 Token 导入测试。' . PHP_EOL;
 }
