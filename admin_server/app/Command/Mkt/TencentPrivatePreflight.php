@@ -91,7 +91,7 @@ class TencentPrivatePreflight extends HyperfCommand
         ];
 
         // Config indicates the scheduler is enabled, not proof the process/queue consumer is alive.
-        $crontabEnabled = (bool)config('crontab.enable', false);
+        $crontabEnabled = filter_var(config('crontab.enable', false), FILTER_VALIDATE_BOOLEAN);
         $checks['crontab_config_enabled'] = $crontabEnabled;
 
         $warnings = [];
