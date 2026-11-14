@@ -441,7 +441,7 @@ namespace {
 
     $tests['无鉴权 HTTP Callback 使用真实点击 URL 和稳定激活数据'] = function () {
         putenv('TX_DATANEXUS_CALLBACK_APPS=demo');
-        $service = new class extends \\App\\Services\\Mkt\\TencentService {
+        $service = new class extends \App\Services\Mkt\TencentService {
             public $sent = [];
             public $reply = ['code' => 0, 'trace_id' => 'safe_trace_1'];
             protected function requestUnauthenticatedCallback(string $url, array $payload): array {
@@ -449,9 +449,9 @@ namespace {
                 return $this->reply;
             }
         };
-        \\DB::$rows = ['mkt_advertiser as a' => (object)['extra' => '{}']];
-        \\DB::$row = null;
-        \\DB::$whereCalls = [];
+        \DB::$rows = ['mkt_advertiser as a' => (object)['extra' => '{}']];
+        \DB::$row = null;
+        \DB::$whereCalls = [];
         $params = [
             'account_id' => '95833136', 'app_code' => 'demo',
             'click_id' => 'g467q2rdaaaihuj7rxaq', 'oaid' => '1779f882-367e-44d4-90d4-dd3ec6810015',
@@ -474,7 +474,7 @@ namespace {
             && $service->sent[0][1] === $service->sent[1][1],
             '重试必须保持 outer_action_id 与整个事件数据不变');
         check(strlen($action['outer_action_id']) < 255, '幂等标识超长');
-        check(!array_filter(\\DB::$whereCalls, function ($query) {
+        check(!array_filter(\DB::$whereCalls, function ($query) {
             return $query[0] === 'mkt_user as c';
         }), 'HTTP 无鉴权模式禁止读取私有 Token');
         $service->reply = ['code' => 12201, 'trace_id' => 'safe_trace_2'];
@@ -485,11 +485,11 @@ namespace {
             $service->callback('activate', $when, $params);
         }, '恶意 Callback 必须在请求前阻止');
         check(count($service->sent) === 3, '恶意 URL 不得触发真实 Callback');
-        \\DB::$rows = [];
+        \DB::$rows = [];
         putenv('TX_DATANEXUS_CALLBACK_APPS');
     };
     $tests['HTTP Callback 传输不含 Token 且限制协议和重定向'] = function () {
-        $service = new class extends \\App\\Services\\Mkt\\TencentService {
+        $service = new class extends \App\Services\Mkt\TencentService {
             public $captures = [];
             public function simulate(string $url): array {
                 return $this->requestUnauthenticatedCallback($url, ['actions' => [['action_type' => 'ACTIVATE_APP']]]);
