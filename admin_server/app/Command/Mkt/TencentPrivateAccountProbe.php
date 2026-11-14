@@ -5,6 +5,7 @@ namespace App\Command\Mkt;
 
 use App\Constants\MktConst;
 use App\Library\Mkt\MktTx;
+use App\Library\Mkt\TencentAdvertiserProbeError;
 use App\Model\App;
 use App\Model\Mkt\MktAccount;
 use App\Model\Mkt\MktAdvertiser;
@@ -77,6 +78,17 @@ class TencentPrivateAccountProbe extends HyperfCommand
                 (string)$credential->access_token,
                 $accountId
             );
+        } catch (TencentAdvertiserProbeError $e) {
+            // Only fixed reasons and strictly bounded numeric codes are printed.
+            // Do not propagate Tencent's original message or URL into exception/trace.
+            $details = 'TX_ACCOUNT_PROBE_' . $e->getMessage();
+            if ($e->httpStatus() !== null) {
+                $details .= ' HTTP_STATUS=' . $e->httpStatus();
+            }
+            if ($e->apiCode() !== null) {
+                $details .= ' API_CODE=' . $e->apiCode();
+            }
+            throw new RuntimeException($details);
         } catch (\Throwable $e) {
             throw new RuntimeException('TX_ACCOUNT_PROBE_REMOTE_ADVERTISER_GET_FAILED');
         }
@@ -124,6 +136,6 @@ class TencentPrivateAccountProbe extends HyperfCommand
         return (new MktTx())
             ->setApp($clientId, $clientSecret)
             ->setToken($accessToken)
-            ->advertiserGet($accountId);
+            ->advertiserProbe($accountId);
     }
 }

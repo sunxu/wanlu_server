@@ -120,6 +120,120 @@ class MktTx extends MktAbstract
         return [];
     }
 
+    /**
+     * Read-only, minimal advertiser identity query for private token validation.
+     * Exposes only fixed diagnostics and bounded numeric HTTP/API codes; never logs
+     * or returns the request URL, tokens or Tencent's free-form message.
+     */
+    public function advertiserProbe(string $accountId): array
+    {
+        $options = [
+            'query' => [
+                'account_id' => $accountId,
+                'fields' => json_encode(['account_id']),
+                'access_token' => $this->getToken(),
+                'timestamp' => time(),
+                'nonce' => bin2hex(random_bytes(16)),
+            ],
+            'timeout' => 30,
+            'connect_timeout' => 10,
+            'http_errors' => false,
+            'allow_redirects' => false,
+        ];
+        // Opt-in single-run raw diagnostic log. Includes the real access token,
+        // complete query, raw HTTP body and transport exception for local debugging.
+        // Never enables logging for other Tencent API methods.
+        $rawDebug = getenv('TX_ACCOUNT_PROBE_RAW_LOG') === '1';
+        $rawTrace = $rawDebug ? bin2hex(random_bytes(6)) : '';
+        if ($rawDebug) {
+            $this->writeAdvertiserProbeRawLog($rawTrace, 'REQUEST',
+                'GET https://api.e.qq.com/v3.0/advertiser/get?'
+                . http_build_query($options['query'], '', '&', PHP_QUERY_RFC3986)
+                . "\nOPTIONS=" . var_export($options, true));
+        }
+        try {
+            $response = $this->getClient()->request(
+                'GET', '/v3.0/advertiser/get', $options
+            );
+            $status = (int)$response->getStatusCode();
+            $raw = (string)$response->getBody();
+            if ($rawDebug) {
+                $headers = method_exists($response, 'getHeaders')
+                    ? var_export($response->getHeaders(), true) : 'unavailable';
+                $this->writeAdvertiserProbeRawLog($rawTrace, 'RESPONSE',
+                    "HTTP_STATUS=" . $status . "\nHEADERS=" . $headers . "\nRAW_BODY=\n" . $raw);
+            }
+        } catch (\Throwable $e) {
+            if ($rawDebug) {
+                $this->writeAdvertiserProbeRawLog($rawTrace, 'TRANSPORT_EXCEPTION',
+                    get_class($e) . ": " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            }
+            throw new TencentAdvertiserProbeError(TencentAdvertiserProbeError::NETWORK_FAILED);
+        }
+        // Only numeric status and numeric API error code may leave this method.
+        $data = json_decode($raw, true, 512, JSON_BIGINT_AS_STRING);
+        $code = null;
+        if (is_array($data) && isset($data['code'])
+            && (is_int($data['code']) || is_string($data['code']))
+            && preg_match('/^[0-9]{1,8}$/D', (string)$data['code'])) {
+            $code = (int)$data['code'];
+        }
+        if ($status !== 200) {
+            throw new TencentAdvertiserProbeError(
+                TencentAdvertiserProbeError::HTTP_FAILED, $status, $code
+            );
+        }
+        if (!is_array($data) || !array_key_exists('code', $data)) {
+            throw new TencentAdvertiserProbeError(TencentAdvertiserProbeError::RESPONSE_INVALID);
+        }
+        if (!in_array($data['code'], [0, '0'], true)) {
+            throw new TencentAdvertiserProbeError(
+                TencentAdvertiserProbeError::API_REJECTED, $status, $code
+            );
+        }
+        if (!is_array($data['data'] ?? null)
+            || !is_array($data['data']['list'] ?? null)) {
+            throw new TencentAdvertiserProbeError(TencentAdvertiserProbeError::RESPONSE_INVALID);
+        }
+        if (!$data['data']['list']) {
+            throw new TencentAdvertiserProbeError(TencentAdvertiserProbeError::ACCOUNT_NOT_RETURNED);
+        }
+        $result = [];
+        foreach ($data['data']['list'] as $item) {
+            if (!is_array($item) || !isset($item['account_id'])
+                || !is_scalar($item['account_id'])) {
+                throw new TencentAdvertiserProbeError(TencentAdvertiserProbeError::RESPONSE_INVALID);
+            }
+            $result[] = ['account_id' => (string)$item['account_id']];
+        }
+        return $result;
+    }
+
+    /**
+     * Temporary opt-in raw integration log, isolated to the account probe.
+     * Contains sensitive parameters and unmodified remote response bytes.
+     */
+    private function writeAdvertiserProbeRawLog(string $trace, string $phase, string $details): void
+    {
+        $directory = BASE_PATH . '/runtime/logs';
+        if (!is_dir($directory) && !@mkdir($directory, 0700, true) && !is_dir($directory)) {
+            return;
+        }
+        $logFile = $directory . '/tencent-account-probe-raw.log';
+        $entry = '[' . date('c') . ' pid=' . getmypid()
+            . ' trace=' . $trace . ' phase=' . $phase . "]\n"
+            . $details . "\n\n";
+        $oldMask = umask(0077);
+        try {
+            @file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
+            if (is_file($logFile)) {
+                @chmod($logFile, 0600);
+            }
+        } finally {
+            umask($oldMask);
+        }
+    }
+
     public function advertiserGet(string $accountId)
     {
         $data = $this->requestByToken('advertiser/get', [
