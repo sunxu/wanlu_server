@@ -12,6 +12,7 @@ on:
   push:
     branches:
       - 'fix/tencent-marketing-p1-*'
+      - 'feat/tx-private-token-callback-*'
   workflow_dispatch:
 
 permissions:
