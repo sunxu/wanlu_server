@@ -13,35 +13,34 @@
 - 若多个业务 App 的私有 Token 实际来源于同一个腾讯开发者应用 + 同一个授权身份，腾讯重置 Token 可能使另一条失效。导入时会拒绝完全相同的凭证；仍必须在线核实腾讯侧身份与授权是否真正独立，不能只靠两条数据库记录保证隔离。
 - 当前数据库字段沿用已有明文存储方式；限制 DB/备份/审计访问并关闭包含 SQL 参数的详细日志，后续如引入加密须先完成兼容迁移。代码和 GitHub 不含任何真实密钥。
 
-### 私有 Token 安全导入
+### 直接命令行导入私有 Token（不使用 JSON，不填写到期时间）
 
-在 `admin_server` **服务器本地**准备权限 `0600` 的 JSON 文件，文件内容格式（均为示例占位值，不能直接用于正式环境）：
-
-```json
-{
-  "client_id": "你的腾讯开发者应用ID",
-  "client_secret": "你的腾讯开发者应用密钥",
-  "app_name": "林舟工具坊",
-  "access_token": "你的实际AccessToken",
-  "refresh_token": "你的实际RefreshToken",
-  "access_expires_at": 1799999900,
-  "refresh_expires_at": 1800999900,
-  "replace_existing": false
-}
-```
-
-到期时间是**腾讯凭证实际到期的 Unix 秒**，不是导入时起算的新有效期。已经登记同一 `client_id` 时 `client_secret` 可省略；如果 Secret 变更，禁止通过导入命令静默替换，请单独执行密钥轮换。刷新未返回新的 Refresh Token 时，原值及原到期时间保持不变。
+需要填写的仅有：业务 `app_code`、腾讯开发者 `client_id`、`client_secret` 和 `refresh_token`。原 `access_token` **不需要提供**，导入时会通过腾讯 `/oauth/token` 的 `grant_type=refresh_token` **立即获取**新 Access Token 和剩余有效期；只有刷新成功且时限合法才入库。腾讯新生成的私有 Token 可能约 10 分钟后才能使用，过早执行将失败且不会写入。
 
 ```bash
 cd admin_server
-chmod 600 /安全路径/tx-private-credential.json
-php bin/hyperf.php mkt:txPrivateImport bxllzs /安全路径/tx-private-credential.json
-# 导入后按公司机密文件处理规范安全清除该临时文件及其备份
+php bin/hyperf.php mkt:txPrivateImport \
+  bxllzs \
+  "你的client_id" \
+  "你的client_secret" \
+  "你的refresh_token"
 ```
 
-更换已导入的凭证必须明确设 `replace_existing=true`，程序拒绝覆盖其他开发者应用的记录、重复凭证以及不存在的业务 App。导入不触发真实 Callback 请求；同时不会自动伪造 `mkt_account` 或广告主归属。上线前需要由具备权限的管理员核对并登记真实账户与广告主。
+已存在同 App 凭证时，只有明确追加 `--replace` 才允许替换：
 
-**刷新**：继续使用 `mkt:authToken` 和 `MktTx::authRefreshToken()`，私有凭证增加 CAS 比对，防止并发刷新或重新导入被旧结果覆盖；刷新失败不覆盖旧 Token。实际定时任务及队列部署状态需在生产环境另行核验。
+```bash
+php bin/hyperf.php mkt:txPrivateImport bxllzs "client_id" "client_secret" "refresh_token" --replace
+```
+
+**命令行安全提醒：** 直接作为命令行参数提交 Secret/Token 会暴露在进程参数列表、系统审计及可能的 Shell 历史中。仅在可信的受限服务器或个人设备运行，不使用 `set -x`、不把命令放进 CI 日志或可共享终端记录；从终端静默读取为变量可减少 Shell 历史泄露，但**不能消除进程列表暴露风险**。如部署要求不允许任何命令行泄露，需另行实现交互式隐藏输入模式。
+
+- `mkt_app.app_id` 保存 `client_id`，`mkt_app.app_secret` 保存密钥（开发者应用首次登记时自动建立）。
+- `mkt_user.user_id` 自动生成为 `txapp_` + SHA1(`app_code`)，其中保存腾讯刷新返回的新 `access_token`、生效时间及最终 `refresh_token`。
+- Access Token 的 `access_time` 从腾讯刷新响应的 `access_token_expires_in` 计算；缺失则拒绝导入，不猜测 24 小时。
+- 如果腾讯响应包含 `refresh_token_expires_in`，据此计算 `refresh_time`；如果**没有**，保存 `refresh_time=0`，含义是**未知到期时间**而非已过期。定时任务在这种情况下仍允许尝试刷新，实际失效由腾讯接口决定，不能伪造默认 30 天。
+- 腾讯刷新接口可能返回新 Refresh Token，此时使用新值；未返回则保留命令行提供的值。刷新失败不覆盖原数据库凭证。
+- 自动刷新继续复用 `mkt:authToken`；刷新响应未报告 Refresh Token 时限时也使用上述 0/未知语义。
+- 此操作只写入凭证相关数据，不建立虚构 OAuth 用户关联、不改 `mkt_account.user_id`、不发转化回传。上线前必须单独核实每个账户身份、Token 对应授权范围以及现有广告主归属。
 
 ### Callback 灰度开关、前置条件与回滚
 
