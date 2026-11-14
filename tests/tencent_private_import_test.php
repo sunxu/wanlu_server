@@ -173,6 +173,8 @@ namespace {
     echo '通过：参数格式和业务 App 存在性检查' . PHP_EOL;
 
     // 这组测试直接校验固定失败代码，确保真实令牌或腾讯响应不泄露到 CLI。
+    rejectsWithCode(function () use ($svc) { $svc->import('INVALID', params('x')); },
+        \App\Service\Mkt\TencentPrivateImportError::INVALID_INPUT);
     rejectsWithCode(function () use ($svc) { $svc->import('not_exists', params('x')); },
         \App\Service\Mkt\TencentPrivateImportError::APP_NOT_ACTIVE);
     $tooLong = params('test-refresh');
