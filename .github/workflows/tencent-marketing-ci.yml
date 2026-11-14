@@ -49,6 +49,7 @@ jobs:
             admin_server/app/Service/Mkt/TencentPrivateCredentialService.php
             admin_server/app/Command/Mkt/TencentPrivateImport.php
             admin_server/app/Command/Mkt/TencentPrivatePreflight.php
+            admin_server/app/Command/Mkt/TencentPrivateAccountProbe.php
             admin_server/app/Command/Mkt/AuthToken.php
             admin_server/app/Service/Mkt/MktService.php
             admin_server/app/Controller/Mkt/MktController.php
@@ -60,6 +61,7 @@ jobs:
             tests/tencent_private_import_test.php
             tests/tencent_private_refresh_test.php
             tests/tencent_private_preflight_test.php
+            tests/tencent_private_account_probe_test.php
             tests/tencent_persistence_test.php
             tests/tencent_attribution_test.php
             tests/tencent_app_creation_test.php
@@ -73,6 +75,7 @@ jobs:
           php tests/tencent_private_import_test.php
           php tests/tencent_private_refresh_test.php
           php tests/tencent_private_preflight_test.php
+          php tests/tencent_private_account_probe_test.php
           php tests/tencent_persistence_test.php
           php tests/tencent_attribution_test.php
           php tests/tencent_app_creation_test.php
